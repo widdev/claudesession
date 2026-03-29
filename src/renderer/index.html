@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:*; script-src 'self';">
+  <title></title>
+  <link rel="stylesheet" href="dist/bundle.css">
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <div id="toolbar-left">
+      <div id="agent-dropdown-container">
+        <button id="btn-new-agent" title="Add new agent">+ New Agent</button>
+        <div id="agent-dropdown" class="dropdown hidden">
+          <div class="dropdown-item new-agent" id="dropdown-new">New...</div>
+          <div id="dropdown-recent-list"></div>
+        </div>
+      </div>
+      <span id="session-label"></span>
+    </div>
+    <div id="toolbar-right">
+      <button id="btn-toggle-layout" class="btn-icon" title="Switch layout mode"></button>
+      <button id="btn-show-agents" class="hidden" title="Show agent consoles">Show Agents</button>
+      <button id="btn-toggle-messages" class="hidden" title="Show Session Comms (Ctrl+M)">Show Comms</button>
+    </div>
+  </div>
+
+  <!-- Welcome screen (no session) -->
+  <div id="welcome-screen">
+    <div id="welcome-content">
+      <h1>ClaudeSession</h1>
+      <p>Multi-agent session manager</p>
+      <button id="btn-create-session">Create New Session</button>
+      <button id="btn-open-session" class="welcome-secondary">Open Existing Session</button>
+    </div>
+  </div>
+
+  <!-- Main area -->
+  <div id="main-area" class="hidden">
+    <!-- GoldenLayout container -->
+    <div id="layout-container">
+      <!-- Empty state prompt (shown when session open but no agents) -->
+      <div id="empty-agent-prompt">
+        <h2>Let's get started</h2>
+        <p>You don't have any agents running yet.<br>Press below to create your first agent for this ClaudeSession session.</p>
+        <button id="btn-empty-new-agent">Create New Agent</button>
+      </div>
+    </div>
+
+    <!-- Resizable splitter -->
+    <div id="panel-splitter"></div>
+
+    <!-- Session Comms panel + broadcast input -->
+    <div id="message-panel">
+      <div id="message-panel-header">
+        <span>Session Comms</span>
+        <div id="message-panel-controls">
+          <button id="btn-clear-messages" title="Clear all comms">Clear</button>
+          <button id="btn-close-messages">&times;</button>
+        </div>
+      </div>
+      <div id="message-port-bar">
+        <label for="port-input">Port:</label>
+        <input type="number" id="port-input" min="1024" max="65535">
+        <button id="btn-restart-port">Restart</button>
+      </div>
+      <div id="message-list"></div>
+      <div id="master-bar">
+        <textarea id="master-input" placeholder="Broadcast to all agents... (Enter to send, Shift+Enter for newline)" rows="6"></textarea>
+        <button id="btn-broadcast">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Agent Modal -->
+  <div id="new-agent-modal" class="modal-overlay hidden">
+    <div class="modal-dialog">
+      <h2>New Agent</h2>
+      <label class="modal-label">Please give your agent a name and colour</label>
+      <div class="modal-field">
+        <label for="modal-agent-name">Name</label>
+        <input type="text" id="modal-agent-name" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="modal-field">
+        <label>Colour</label>
+        <div id="modal-color-swatches" class="color-swatch-grid"></div>
+      </div>
+      <label class="modal-label">Please select the working directory for your agent (you can change this later)</label>
+      <div class="modal-field modal-dir-field">
+        <span id="modal-agent-path" class="modal-path-display"></span>
+        <button id="modal-select-dir">Select</button>
+      </div>
+      <div class="modal-info-box">
+        <div class="modal-info-icon">!</div>
+        <div class="modal-info-content">
+          <label class="modal-info-label">
+            <input type="checkbox" id="modal-auto-permissions" checked>
+            <span>Agents created in ClaudeSession will be initialised with permission to use <code>curl</code> and <code>printf</code> so that they can communicate with each other out of the box. If you prefer not to allow these permissions automatically, uncheck this box. You will then need to grant permission manually in the agent consoles before the agents can talk to each other through the Session Comms panel.</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="modal-cancel-btn" class="modal-btn-secondary">Cancel</button>
+        <button id="modal-create-btn" class="modal-btn-primary">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="dist/bundle.js"></script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+{
+  "name": "claude-session",
+  "version": "1.0.10",
+"description": "Multi-agent Claude Code session manager with inter-agent messaging",
+  "author": "ClaudeSession",
+  "main": "src/main/main.js",
+  "scripts": {
+    "build:renderer": "esbuild src/renderer/js/app.js --bundle --outfile=src/renderer/dist/bundle.js --platform=browser --format=iife --loader:.css=css",
+    "start": "npm run build:renderer && electron .",
+    "dist": "npm run build:renderer && electron-builder --win",
+    "dist:dir": "npm run build:renderer && electron-builder --win --dir"
+  },
+  "build": {
+"appId": "com.claudesession.app",
+    "npmRebuild": false,
+    "productName": "ClaudeSession",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*",
+      "!node_modules/.cache/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "ClaudeSession"
+    },
+    "portable": {
+      "artifactName": "ClaudeSession-Portable.exe"
+    }
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "node-pty": "^1.0.0",
+    "sql.js": "^1.11.0",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "electron": "~30.5.1",
+    "electron-builder": "^26.8.1",
+    "esbuild": "^0.27.4",
+    "golden-layout": "^2.6.0"
+  }
+}
