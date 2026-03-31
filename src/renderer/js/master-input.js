@@ -1,5 +1,5 @@
 import { getActiveAgents } from './agent-panel.js';
-import { appendBroadcast } from './message-panel.js';
+import { appendBroadcast, appendAside } from './message-panel.js';
 
 const history = [];
 let historyIndex = -1;
@@ -51,11 +51,49 @@ export function initMasterInput() {
   });
 
   input.addEventListener('input', () => resizeInput(input));
+
+  // Accept drag-and-drop from Tasks panel
+  input.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    input.classList.add('drag-over');
+  });
+  input.addEventListener('dragleave', () => {
+    input.classList.remove('drag-over');
+  });
+  input.addEventListener('drop', (e) => {
+    e.preventDefault();
+    input.classList.remove('drag-over');
+    const text = e.dataTransfer.getData('text/plain');
+    if (text) {
+      input.value = input.value ? input.value + '\n' + text : text;
+      resizeInput(input);
+      input.focus();
+    }
+  });
 }
 
 function resizeInput(input) {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+}
+
+function sendToAgent(agentId, text) {
+  const isMultiline = text.includes('\n') || text.includes('\r');
+  const isLong = text.length > 100;
+  if (isMultiline || isLong) {
+    // Send text first, then Enter after a delay — otherwise the terminal's
+    // bracketed-paste / multiline detection swallows the trailing \r and
+    // shows "[N lines]" without submitting. Longer text needs more time
+    // for the terminal to finish processing the paste.
+    window.electronAPI.writeToAgent(agentId, text);
+    const delay = Math.min(300 + text.length, 1500);
+    setTimeout(() => {
+      window.electronAPI.writeToAgent(agentId, '\r');
+    }, delay);
+  } else {
+    window.electronAPI.writeToAgent(agentId, text + '\r');
+  }
 }
 
 function broadcast() {
@@ -71,11 +109,34 @@ function broadcast() {
   pendingInput = '';
 
   const agents = getActiveAgents();
-  for (const [agentId] of agents) {
-    window.electronAPI.writeToAgent(agentId, text + '\r');
-  }
 
-  appendBroadcast(text);
+  // Check for #AGENTNAME prefix — direct aside to a single agent
+  const hashMatch = text.match(/^#(\S+)\s+([\s\S]*)$/);
+  if (hashMatch) {
+    const targetName = hashMatch[1];
+    const messageBody = hashMatch[2].trim();
+    // Find agent by name (case-insensitive)
+    let targetId = null;
+    for (const [agentId, entry] of agents) {
+      if (entry.name.toLowerCase() === targetName.toLowerCase()) {
+        targetId = agentId;
+        break;
+      }
+    }
+    if (targetId && messageBody) {
+      sendToAgent(targetId, messageBody);
+      appendAside(messageBody, targetName);
+    } else if (!targetId) {
+      // No matching agent — show error inline
+      appendAside(`Agent "${targetName}" not found`, targetName);
+    }
+  } else {
+    // Normal broadcast to all agents
+    for (const [agentId] of agents) {
+      sendToAgent(agentId, text);
+    }
+    appendBroadcast(text);
+  }
 
   input.value = '';
   input.style.height = 'auto';

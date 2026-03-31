@@ -3,40 +3,68 @@ import { FitAddon } from '@xterm/addon-fit';
 
 const activeAgents = new Map(); // agentId -> { terminal, fitAddon, container, name, color, glContainer, ... }
 
-const AGENT_COLORS = [
-  '#569cd6', // blue
-  '#6a9955', // green
-  '#d7ba7d', // gold
-  '#c586c0', // purple
-  '#ce9178', // orange
-  '#4ec9b0', // teal
-  '#d16969', // red
-  '#dcdcaa', // yellow
-  '#9cdcfe', // light blue
-  '#b5cea8', // light green
-  '#f48771', // salmon
-  '#e07070', // coral
-  '#d4a0e0', // lavender
-  '#e06c75', // rose
-  '#56b6c2', // cyan
-  '#e5c07b', // amber
-  '#98c379', // emerald
-  '#61afef', // sky blue
-  '#be5046', // brick red
-  '#d19a66', // peach
-  '#c678dd', // violet
-  '#e8e89c', // lemon
-  '#7cc6a0', // mint
-  '#e090a0', // pink
-  '#78d0d0', // aqua
-  '#c8b86e', // mustard
-  '#a8c8e8', // powder blue
-  '#e8a870', // tangerine
-  '#b0d090', // sage
-  '#d0a0d0', // orchid
-  '#80c8c8', // seafoam
-  '#e0c890', // wheat
+// Each color has an ID, a dark-theme variant, and a light-theme variant.
+// The active variant is selected based on the current theme.
+const AGENT_COLOR_DEFS = [
+  { id: 'blue',        dark: '#569cd6', light: '#1a6fb5' },
+  { id: 'green',       dark: '#6a9955', light: '#2d7a1e' },
+  { id: 'gold',        dark: '#d7ba7d', light: '#937324' },
+  { id: 'purple',      dark: '#c586c0', light: '#9b3d95' },
+  { id: 'orange',      dark: '#ce9178', light: '#b05a30' },
+  { id: 'teal',        dark: '#4ec9b0', light: '#1a8a6e' },
+  { id: 'red',         dark: '#d16969', light: '#b52828' },
+  { id: 'yellow',      dark: '#dcdcaa', light: '#7a7a10' },
+  { id: 'light-blue',  dark: '#9cdcfe', light: '#1874a8' },
+  { id: 'light-green', dark: '#b5cea8', light: '#3a7a1e' },
+  { id: 'salmon',      dark: '#f48771', light: '#c44030' },
+  { id: 'coral',       dark: '#e07070', light: '#b83030' },
+  { id: 'lavender',    dark: '#d4a0e0', light: '#8a40a8' },
+  { id: 'rose',        dark: '#e06c75', light: '#b82835' },
+  { id: 'cyan',        dark: '#56b6c2', light: '#1a7a88' },
+  { id: 'amber',       dark: '#e5c07b', light: '#8a6a10' },
+  { id: 'emerald',     dark: '#98c379', light: '#2e7018' },
+  { id: 'sky-blue',    dark: '#61afef', light: '#1468b0' },
+  { id: 'brick-red',   dark: '#be5046', light: '#9a2a1a' },
+  { id: 'peach',       dark: '#d19a66', light: '#9a5a18' },
+  { id: 'violet',      dark: '#c678dd', light: '#8a30b8' },
+  { id: 'lemon',       dark: '#e8e89c', light: '#6a6a10' },
+  { id: 'mint',        dark: '#7cc6a0', light: '#1a7a4a' },
+  { id: 'pink',        dark: '#e090a0', light: '#b83858' },
+  { id: 'aqua',        dark: '#78d0d0', light: '#1a7a7a' },
+  { id: 'mustard',     dark: '#c8b86e', light: '#7a6a10' },
+  { id: 'powder-blue', dark: '#a8c8e8', light: '#2a5a8a' },
+  { id: 'tangerine',   dark: '#e8a870', light: '#a85a18' },
+  { id: 'sage',        dark: '#b0d090', light: '#4a7a18' },
+  { id: 'orchid',      dark: '#d0a0d0', light: '#8a3a8a' },
+  { id: 'seafoam',     dark: '#80c8c8', light: '#1a6a6a' },
+  { id: 'wheat',       dark: '#e0c890', light: '#8a6a18' },
 ];
+
+let currentTheme = 'dark';
+
+// Get the hex color for a given color ID in the current theme
+export function getColorHex(colorId) {
+  const def = AGENT_COLOR_DEFS.find(c => c.id === colorId);
+  if (!def) return colorId; // fallback: treat as raw hex
+  return def[currentTheme];
+}
+
+// Get all color hex values for current theme (for palette display)
+export function getThemeColors() {
+  return AGENT_COLOR_DEFS.map(c => ({ id: c.id, hex: c[currentTheme] }));
+}
+
+// Set theme and return list of active agents so callers can update UI
+export function setColorTheme(theme) {
+  currentTheme = theme;
+}
+
+export function getColorTheme() {
+  return currentTheme;
+}
+
+// Legacy flat array — dynamically computed from current theme
+const AGENT_COLORS = AGENT_COLOR_DEFS.map(c => c.dark);
 let nextColorIndex = 0;
 
 // Track which agent the user is currently interacting with
@@ -45,33 +73,91 @@ let focusedAgentId = null;
 // Attention state tracked separately so it survives layout toggles
 const attentionState = new Map(); // agentId -> boolean
 
-export function assignAgentColor(color) {
-  if (color) return color;
-  const c = AGENT_COLORS[nextColorIndex % AGENT_COLORS.length];
+// Shared terminal zoom (percentage-based, 13px base)
+const TERMINAL_BASE_FONT = 13;
+const TERMINAL_ZOOM_LEVELS = [75, 85, 100, 115, 130, 150];
+let terminalZoom = 100;
+let terminalFontSize = TERMINAL_BASE_FONT;
+
+function applyTerminalZoom(zoom) {
+  terminalZoom = zoom;
+  terminalFontSize = Math.round(TERMINAL_BASE_FONT * zoom / 100);
+  for (const [agentId, entry] of activeAgents) {
+    entry.terminal.options.fontSize = terminalFontSize;
+    entry.fitAddon.fit();
+    window.electronAPI.resizeAgent(agentId, entry.terminal.cols, entry.terminal.rows);
+  }
+  const sel = document.getElementById('terminal-zoom-select');
+  if (sel) sel.value = String(zoom);
+  window.electronAPI.setSetting('terminalZoom', zoom);
+}
+
+// Call once at startup to load persisted zoom and bind the picklist
+export function initTerminalFontSize() {
+  const sel = document.getElementById('terminal-zoom-select');
+
+  if (sel) {
+    sel.addEventListener('change', () => {
+      applyTerminalZoom(parseInt(sel.value, 10));
+    });
+  }
+
+  window.electronAPI.getSetting('terminalZoom').then((zoom) => {
+    if (zoom && TERMINAL_ZOOM_LEVELS.includes(zoom)) {
+      terminalZoom = zoom;
+      terminalFontSize = Math.round(TERMINAL_BASE_FONT * zoom / 100);
+      if (sel) sel.value = String(zoom);
+      for (const [agentId, entry] of activeAgents) {
+        entry.terminal.options.fontSize = terminalFontSize;
+        entry.fitAddon.fit();
+        window.electronAPI.resizeAgent(agentId, entry.terminal.cols, entry.terminal.rows);
+      }
+    }
+  });
+}
+
+// Assign a color ID to an agent. Accepts an ID or raw hex (for backwards compat).
+export function assignAgentColor(colorIdOrHex) {
+  if (colorIdOrHex) {
+    // If it's already a known ID, return it
+    if (AGENT_COLOR_DEFS.find(c => c.id === colorIdOrHex)) return colorIdOrHex;
+    // If it's a hex that matches a known color, return the ID
+    const match = AGENT_COLOR_DEFS.find(c => c.dark === colorIdOrHex || c.light === colorIdOrHex);
+    if (match) return match.id;
+    // Unknown hex — return as-is (fallback)
+    return colorIdOrHex;
+  }
+  const def = AGENT_COLOR_DEFS[nextColorIndex % AGENT_COLOR_DEFS.length];
   nextColorIndex++;
-  return c;
+  return def.id;
 }
 
 export function getNextDefaultColor() {
-  // Return the next color not currently used by an active agent
-  const usedColors = new Set();
+  // Return the next color ID not currently used by an active agent
+  const usedIds = new Set();
   for (const [, entry] of activeAgents) {
-    usedColors.add(entry.color);
+    usedIds.add(entry.colorId);
   }
-  for (let i = 0; i < AGENT_COLORS.length; i++) {
-    if (!usedColors.has(AGENT_COLORS[i])) {
-      return AGENT_COLORS[i];
+  for (let i = 0; i < AGENT_COLOR_DEFS.length; i++) {
+    if (!usedIds.has(AGENT_COLOR_DEFS[i].id)) {
+      return AGENT_COLOR_DEFS[i].id;
     }
   }
   // All used, fall back to sequential
-  return AGENT_COLORS[nextColorIndex % AGENT_COLORS.length];
+  return AGENT_COLOR_DEFS[nextColorIndex % AGENT_COLOR_DEFS.length].id;
 }
 
-export { AGENT_COLORS };
+export { AGENT_COLORS, AGENT_COLOR_DEFS };
 
 export function getAgentColor(agentId) {
   const entry = activeAgents.get(agentId);
-  return entry ? entry.color : null;
+  if (!entry) return null;
+  return getColorHex(entry.colorId);
+}
+
+export function getAgentColorId(agentId) {
+  const entry = activeAgents.get(agentId);
+  return entry ? entry.colorId : null;
 }
 
 export function resetColorIndex() {
@@ -83,7 +169,16 @@ export function getActiveAgents() {
   return activeAgents;
 }
 
-export function createAgentPanel(container, agentId, agentName, agentCwd, glContainer, color) {
+// Shorten a full path to "...\lastFolder" for display
+function shortenPath(fullPath) {
+  if (!fullPath) return '';
+  const parts = fullPath.replace(/[\\/]+$/, '').split(/[\\/]/);
+  if (parts.length <= 2) return fullPath;
+  return '...' + (fullPath.includes('/') ? '/' : '\\') + parts[parts.length - 1];
+}
+
+export function createAgentPanel(container, agentId, agentName, agentCwd, glContainer, colorId) {
+  const color = getColorHex(colorId);
   const panel = document.createElement('div');
   panel.className = 'agent-panel';
   panel.dataset.agentId = agentId;
@@ -104,13 +199,23 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
   nameLabel.textContent = agentName;
   nameLabel.style.color = color;
 
+  // Nudge button — sends "check messages" to the agent
+  const nudgeBtn = document.createElement('button');
+  nudgeBtn.className = 'btn-nudge-agent';
+  nudgeBtn.textContent = 'Nudge';
+  nudgeBtn.title = 'Ask agent to check messages';
+  nudgeBtn.addEventListener('click', () => {
+    const prompt = 'Please check for new messages addressed to you now and act on any you find.';
+    window.electronAPI.writeToAgent(agentId, prompt + '\r');
+  });
+
   // Working path section — right aligned
   const cwdSection = document.createElement('div');
   cwdSection.className = 'agent-cwd-section';
 
   const cwdPath = document.createElement('span');
   cwdPath.className = 'agent-dir';
-  cwdPath.textContent = agentCwd;
+  cwdPath.textContent = shortenPath(agentCwd);
   cwdPath.title = agentCwd;
 
   const cwdBtn = document.createElement('button');
@@ -120,7 +225,7 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
   cwdBtn.addEventListener('click', async () => {
     const newCwd = await window.electronAPI.changeAgentCwd(agentId);
     if (newCwd) {
-      cwdPath.textContent = newCwd;
+      cwdPath.textContent = shortenPath(newCwd);
       cwdPath.title = newCwd;
     }
   });
@@ -141,6 +246,7 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
 
   header.appendChild(attentionBadge);
   header.appendChild(nameLabel);
+  header.appendChild(nudgeBtn);
   header.appendChild(cwdSection);
   header.appendChild(closeBtn);
 
@@ -153,15 +259,14 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
   container.appendChild(panel);
 
   // Create xterm.js terminal
+  const termTheme = currentTheme === 'light'
+    ? { background: '#f5f5f5', foreground: '#1e1e1e', cursor: '#1e1e1e', selectionBackground: '#add6ff' }
+    : { background: '#1e1e1e', foreground: '#d4d4d4', cursor: '#d4d4d4', selectionBackground: '#264f78' };
+
   const terminal = new Terminal({
-    theme: {
-      background: '#1e1e1e',
-      foreground: '#d4d4d4',
-      cursor: '#d4d4d4',
-      selectionBackground: '#264f78',
-    },
+    theme: termTheme,
     fontFamily: "'Cascadia Code', 'Consolas', 'Courier New', monospace",
-    fontSize: 13,
+    fontSize: terminalFontSize,
     cursorBlink: true,
     scrollback: 5000,
   });
@@ -174,6 +279,18 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
     fitAddon.fit();
     window.electronAPI.resizeAgent(agentId, terminal.cols, terminal.rows);
   });
+
+  // Ctrl+MouseWheel to change terminal zoom (all agents share the same level)
+  termContainer.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const idx = TERMINAL_ZOOM_LEVELS.indexOf(terminalZoom);
+    if (e.deltaY < 0 && idx < TERMINAL_ZOOM_LEVELS.length - 1) {
+      applyTerminalZoom(TERMINAL_ZOOM_LEVELS[idx + 1]);
+    } else if (e.deltaY > 0 && idx > 0) {
+      applyTerminalZoom(TERMINAL_ZOOM_LEVELS[idx - 1]);
+    }
+  }, { passive: false });
 
   // Forward keystrokes to PTY — and mark as focused
   terminal.onData((data) => {
@@ -212,9 +329,10 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
     fitAddon,
     container: panel,
     header,
+    nameLabel,
     attentionBadge,
     name: agentName,
-    color,
+    colorId,
     glContainer,
     resizeObserver,
     idleTimer: null,
@@ -409,5 +527,20 @@ function setFocused(agentId) {
 export function fitAll() {
   for (const [, entry] of activeAgents) {
     entry.fitAddon.fit();
+  }
+}
+
+// Re-apply agent colors and terminal themes after a theme change
+export function refreshAgentColors() {
+  const termTheme = currentTheme === 'light'
+    ? { background: '#f5f5f5', foreground: '#1e1e1e', cursor: '#1e1e1e', selectionBackground: '#add6ff' }
+    : { background: '#1e1e1e', foreground: '#d4d4d4', cursor: '#d4d4d4', selectionBackground: '#264f78' };
+
+  for (const [, entry] of activeAgents) {
+    const hex = getColorHex(entry.colorId);
+    entry.header.style.borderLeft = `3px solid ${hex}`;
+    entry.nameLabel.style.color = hex;
+    applyTabColor(entry.glContainer, hex);
+    entry.terminal.options.theme = termTheme;
   }
 }

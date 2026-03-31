@@ -75,6 +75,19 @@ async function startMessageServer(sessionManager, ptyManager) {
     res.json(agents);
   });
 
+  // GET /api/tasks - list all tasks
+  app.get('/api/tasks', (req, res) => {
+    const tasks = sessionManager.getTasks();
+    res.json(tasks);
+  });
+
+  // GET /api/tasks/:id - get a specific task
+  app.get('/api/tasks/:id', (req, res) => {
+    const task = sessionManager.getTask(req.params.id);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    res.json(task);
+  });
+
   const port = await findFreePort(3377);
   const server = app.listen(port, '127.0.0.1', () => {
     console.log(`ClaudeSession message server on port ${port}`);

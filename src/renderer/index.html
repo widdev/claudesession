@@ -19,12 +19,23 @@
           <div id="dropdown-recent-list"></div>
         </div>
       </div>
-      <span id="session-label"></span>
+    </div>
+    <div id="toolbar-center">
+      <div id="session-name-display">
+        <span id="session-label"></span>
+        <button id="btn-edit-name" class="btn-edit-name hidden" title="Rename session">&#9998;</button>
+      </div>
+      <div id="session-name-edit" class="hidden">
+        <input type="text" id="session-name-input" autocomplete="off" spellcheck="false">
+        <button id="btn-save-name" class="btn-name-action" title="Save">&#10003;</button>
+        <button id="btn-cancel-name" class="btn-name-action" title="Cancel">&#10005;</button>
+      </div>
     </div>
     <div id="toolbar-right">
       <button id="btn-toggle-layout" class="btn-icon" title="Switch layout mode"></button>
       <button id="btn-show-agents" class="hidden" title="Show agent consoles">Show Agents</button>
-      <button id="btn-toggle-messages" class="hidden" title="Show Session Comms (Ctrl+M)">Show Comms</button>
+      <button id="btn-toggle-tasks" class="hidden" title="Show Tasks">Tasks</button>
+      <button id="btn-toggle-messages" class="hidden" title="Show Discussion (Ctrl+M)">Discussion</button>
     </div>
   </div>
 
@@ -40,13 +51,26 @@
 
   <!-- Main area -->
   <div id="main-area" class="hidden">
-    <!-- GoldenLayout container -->
-    <div id="layout-container">
-      <!-- Empty state prompt (shown when session open but no agents) -->
-      <div id="empty-agent-prompt">
-        <h2>Let's get started</h2>
-        <p>You don't have any agents running yet.<br>Press below to create your first agent for this ClaudeSession session.</p>
-        <button id="btn-empty-new-agent">Create New Agent</button>
+    <!-- Agent panel wrapper (GL + status bar) -->
+    <div id="agent-panel-wrapper">
+      <!-- GoldenLayout container -->
+      <div id="layout-container">
+        <!-- Empty state prompt (shown when session open but no agents) -->
+        <div id="empty-agent-prompt">
+          <h2>Let's get started</h2>
+          <p>You don't have any agents running yet.<br>Press below to create your first agent for this ClaudeSession session.</p>
+          <button id="btn-empty-new-agent">Create New Agent</button>
+        </div>
+      </div>
+      <div id="agent-status-bar">
+        <select id="terminal-zoom-select" title="Terminal zoom level">
+          <option value="75">75%</option>
+          <option value="85">85%</option>
+          <option value="100" selected>100%</option>
+          <option value="115">115%</option>
+          <option value="130">130%</option>
+          <option value="150">150%</option>
+        </select>
       </div>
     </div>
 
@@ -56,9 +80,9 @@
     <!-- Session Comms panel + broadcast input -->
     <div id="message-panel">
       <div id="message-panel-header">
-        <span>Session Comms</span>
+        <span>Discussion</span>
         <div id="message-panel-controls">
-          <button id="btn-clear-messages" title="Clear all comms">Clear</button>
+          <button id="btn-archive-messages" title="Archive discussion">Archive</button>
           <button id="btn-close-messages">&times;</button>
         </div>
       </div>
@@ -71,6 +95,31 @@
       <div id="master-bar">
         <textarea id="master-input" placeholder="Broadcast to all agents... (Enter to send, Shift+Enter for newline)" rows="6"></textarea>
         <button id="btn-broadcast">Send</button>
+      </div>
+      <div id="message-status-bar">
+        <select id="zoom-select" title="Message zoom level">
+          <option value="75">75%</option>
+          <option value="85">85%</option>
+          <option value="100" selected>100%</option>
+          <option value="115">115%</option>
+          <option value="130">130%</option>
+          <option value="150">150%</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Tasks panel -->
+    <div id="task-panel" class="hidden">
+      <div id="task-panel-header">
+        <span>Tasks</span>
+        <div id="task-panel-controls">
+          <button id="btn-close-tasks">&times;</button>
+        </div>
+      </div>
+      <div id="task-list"></div>
+      <div id="task-bar">
+        <textarea id="task-input" placeholder="Add a task... (Enter to add)" rows="3"></textarea>
+        <button id="btn-add-task">Add</button>
       </div>
     </div>
   </div>
@@ -105,6 +154,46 @@
       <div class="modal-actions">
         <button id="modal-cancel-btn" class="modal-btn-secondary">Cancel</button>
         <button id="modal-create-btn" class="modal-btn-primary">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Session Name Modal -->
+  <div id="name-modal" class="modal-overlay hidden">
+    <div class="modal-dialog" style="width: 360px;">
+      <h2 id="name-modal-title">Save Session</h2>
+      <div class="modal-field">
+        <label for="modal-session-name">Session Name</label>
+        <input type="text" id="modal-session-name" autocomplete="off" spellcheck="false" placeholder="My Session">
+      </div>
+      <div class="modal-actions">
+        <button id="name-modal-cancel" class="modal-btn-secondary">Cancel</button>
+        <button id="name-modal-ok" class="modal-btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Archive Modal -->
+  <div id="archive-modal" class="modal-overlay hidden">
+    <div class="modal-dialog" style="width: 400px;">
+      <h2>Archive Discussion</h2>
+      <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 16px;">Save the discussion history as a text file.</p>
+      <div class="modal-field">
+        <label for="archive-path-display">Save to</label>
+        <div class="modal-dir-field">
+          <span id="archive-path-display" class="modal-path-display"></span>
+          <button id="archive-select-dir">Browse</button>
+        </div>
+      </div>
+      <div class="modal-field">
+        <label class="modal-info-label" style="gap: 6px; cursor: pointer;">
+          <input type="checkbox" id="archive-clear-on-save" checked>
+          <span>Clear discussion after saving</span>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="archive-cancel" class="modal-btn-secondary">Cancel</button>
+        <button id="archive-save" class="modal-btn-primary">Save</button>
       </div>
     </div>
   </div>

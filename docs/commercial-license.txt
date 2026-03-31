@@ -1,0 +1,40 @@
+# Commercial License
+
+This software is licensed under the **PolyForm Noncommercial License 1.0.0** for all non‑commercial use.
+
+If you wish to use this software for **commercial purposes**, including but not limited to:
+
+- Using it within a business  
+- Integrating it into a commercial product  
+- Offering it as part of a paid service  
+- Using it to provide services to clients  
+- Forking or modifying it for commercial benefit  
+
+…you must obtain a **commercial license**.
+
+## How to obtain a commercial license
+
+Please contact:
+
+**[Your Name]**  
+Email: **support@snowdayonline.com**  
+Company: **Snowday Ltd**
+
+Include:
+
+- Your company name  
+- Intended use case  
+- Expected scale  
+- Any required terms or compliance needs  
+
+We will provide a commercial licensing quote and terms appropriate to your use case.
+
+## Why dual licensing?
+
+This model allows:
+
+- **Individuals, students, and hobbyists** to use the software freely  
+- **Businesses** to support ongoing development through commercial licensing  
+- **Protection** against commercial forks, SaaS clones, or reselling  
+
+Thank you for supporting sustainable open development.

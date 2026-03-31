@@ -106,6 +106,21 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
     return result.filePaths[0];
   });
 
+  ipcMain.handle('dialog:saveFile', async (event, opts) => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: opts.title || 'Save File',
+      defaultPath: opts.defaultPath || 'file.txt',
+      filters: opts.filters || [{ name: 'Text Files', extensions: ['txt'] }],
+    });
+    if (result.canceled) return null;
+    return result.filePath;
+  });
+
+  ipcMain.handle('file:writeText', async (event, filePath, content) => {
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return true;
+  });
+
   // --- Agents ---
   ipcMain.handle('agents:list', () => {
     return ptyManager.getAll();
@@ -130,6 +145,50 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
 
   ipcMain.handle('messages:clear', () => {
     sessionManager.clearMessages();
+  });
+
+  ipcMain.handle('messages:getArchived', () => {
+    return sessionManager.getArchivedMessages();
+  });
+
+  ipcMain.handle('messages:restore', (event, messageId) => {
+    sessionManager.restoreMessage(messageId);
+  });
+
+  ipcMain.handle('messages:restoreAll', () => {
+    sessionManager.restoreAllMessages();
+  });
+
+  // --- Tasks ---
+  ipcMain.handle('tasks:getAll', () => {
+    return sessionManager.getTasks();
+  });
+
+  ipcMain.handle('tasks:add', (event, content) => {
+    // Generate a friendly 4-char ID (2 uppercase letters + 2 digits)
+    function generateId() {
+      const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+      const digits = '0123456789';
+      return letters[Math.floor(Math.random() * letters.length)]
+           + letters[Math.floor(Math.random() * letters.length)]
+           + digits[Math.floor(Math.random() * digits.length)]
+           + digits[Math.floor(Math.random() * digits.length)];
+    }
+    // Ensure uniqueness
+    let id;
+    const existing = new Set(sessionManager.getTasks().map(t => t.id));
+    do { id = generateId(); } while (existing.has(id));
+
+    const task = sessionManager.saveTask({ id, content });
+    return task;
+  });
+
+  ipcMain.handle('tasks:remove', (event, taskId) => {
+    sessionManager.removeTask(taskId);
+  });
+
+  ipcMain.handle('tasks:get', (event, taskId) => {
+    return sessionManager.getTask(taskId);
   });
 
   // --- Session ---
@@ -236,29 +295,65 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
     return files;
   });
 
-  ipcMain.handle('session:save', async () => {
+  ipcMain.handle('session:save', async (event, sessionName) => {
     if (!sessionManager.isOpen()) {
       await createTempSession();
     }
 
+    const sessionPath = sessionManager.getPath();
+
+    // Save agent state
     const agents = ptyManager.getAll();
     for (const agent of agents) {
       sessionManager.saveAgent(agent);
     }
     if (mainWindow) {
-      const bounds = mainWindow.getBounds();
-      sessionManager.saveMeta('windowBounds', JSON.stringify(bounds));
+      sessionManager.saveMeta('windowBounds', JSON.stringify(mainWindow.getBounds()));
     }
 
-    const result = await dialog.showSaveDialog(mainWindow, {
-      title: 'Save Session As',
-      defaultPath: 'MySession.cms',
-      filters: [{ name: 'ClaudeSession Session', extensions: ['cms'] }],
-    });
-    if (result.canceled) return false;
+    // If session is already saved (not temp), just save in place
+    if (!isTemporarySession(sessionPath)) {
+      // If a new name was provided (rename), update the metadata
+      if (sessionName) {
+        sessionManager.saveMeta('sessionName', sessionName);
+      }
+      sessionManager.saveTo(sessionPath);
+      const name = sessionManager.getMeta('sessionName') || '';
+      return { filePath: sessionPath, sessionName: name };
+    }
 
-    sessionManager.saveTo(result.filePath);
-    return result.filePath;
+    // Temp session — needs a name and file path
+    // Use the provided name or prompt will come from the renderer
+    if (!sessionName) return false;
+
+    sessionManager.saveMeta('sessionName', sessionName);
+
+    // Save to the default sessions directory with a sanitized filename
+    const sessDir = getSessionsDir();
+    if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true });
+    const safeName = sessionName.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Session';
+    let filePath = pathMod.join(sessDir, `${safeName}.cms`);
+    let counter = 2;
+    while (fs.existsSync(filePath)) {
+      filePath = pathMod.join(sessDir, `${safeName} (${counter}).cms`);
+      counter++;
+    }
+
+    sessionManager.saveTo(filePath);
+    return { filePath, sessionName };
+  });
+
+  ipcMain.handle('session:rename', async (event, newName) => {
+    if (!sessionManager.isOpen()) return null;
+    if (!newName) return null;
+    sessionManager.saveMeta('sessionName', newName);
+    sessionManager.saveTo(sessionManager.getPath());
+    return newName;
+  });
+
+  ipcMain.handle('session:getName', () => {
+    if (!sessionManager.isOpen()) return null;
+    return sessionManager.getMeta('sessionName') || null;
   });
 
   ipcMain.handle('session:close', async (event, options = {}) => {
@@ -276,20 +371,8 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
         });
         if (response === 2) return false;
         if (response === 0) {
-          const agents = ptyManager.getAll();
-          for (const agent of agents) {
-            sessionManager.saveAgent(agent);
-          }
-          if (mainWindow) {
-            sessionManager.saveMeta('windowBounds', JSON.stringify(mainWindow.getBounds()));
-          }
-          const result = await dialog.showSaveDialog(mainWindow, {
-            title: 'Save Session As',
-            defaultPath: 'MySession.cms',
-            filters: [{ name: 'ClaudeSession Session', extensions: ['cms'] }],
-          });
-          if (result.canceled) return false;
-          sessionManager.saveTo(result.filePath);
+          // Signal renderer to prompt for a name, then save
+          return 'needs-name';
         }
       } else {
         // Saved session — confirm if starting a new session
@@ -313,6 +396,11 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
 
   ipcMain.handle('session:isOpen', () => {
     return sessionManager.isOpen();
+  });
+
+  ipcMain.handle('session:isTemp', () => {
+    if (!sessionManager.isOpen()) return true;
+    return isTemporarySession(sessionManager.getPath());
   });
 
   ipcMain.handle('session:getPath', () => {

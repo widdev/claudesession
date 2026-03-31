@@ -2,14 +2,15 @@ import '@xterm/xterm/css/xterm.css';
 import 'golden-layout/dist/css/goldenlayout-base.css';
 
 import { GoldenLayout, ItemType } from 'golden-layout';
-import { createAgentPanel, removeAgentPanel, writeToTerminal, getActiveAgents, fitAll, assignAgentColor, resetColorIndex, getNextDefaultColor, AGENT_COLORS } from './agent-panel.js';
+import { createAgentPanel, removeAgentPanel, writeToTerminal, getActiveAgents, fitAll, assignAgentColor, resetColorIndex, getNextDefaultColor, getThemeColors, getColorHex, setColorTheme, getColorTheme, refreshAgentColors, initTerminalFontSize, AGENT_COLOR_DEFS } from './agent-panel.js';
 import { initMessagePanel, loadMessages, toggleAgentsPanel } from './message-panel.js';
 import { initMasterInput } from './master-input.js';
 import { initAgentDropdown } from './agent-dropdown.js';
+import { initTaskPanel, loadTasks } from './task-panel.js';
 
 let goldenLayout = null;
 let serverPort = null;
-let layoutMode = 'side-by-side'; // 'side-by-side' or 'tabs'
+let layoutMode = 'side-by-side'; // 'side-by-side', 'stacked', or 'tabs'
 let isTogglingLayout = false;
 
 function enterSessionState() {
@@ -27,6 +28,7 @@ function enterNoSessionState() {
   document.getElementById('agent-dropdown-container').classList.add('hidden');
   document.getElementById('session-label').textContent = '';
   document.getElementById('session-label').title = '';
+  document.title = 'Claude Session Manager';
   clearLayout();
   resetColorIndex();
 }
@@ -55,31 +57,88 @@ function updateEmptyState() {
   }
 }
 
-function updateSessionLabel(sessionPath) {
+function updateSessionLabel(sessionPath, sessionName) {
   const label = document.getElementById('session-label');
-  if (!sessionPath) {
-    label.textContent = '';
-    label.title = '';
-    return;
-  }
-  const fileName = sessionPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
-  if (fileName.startsWith('temp')) {
-    label.textContent = '';
-    label.title = '';
+  const editBtn = document.getElementById('btn-edit-name');
+  if (sessionName) {
+    label.textContent = sessionName;
+    label.title = sessionPath || '';
+    document.title = `Claude Session Manager - ${sessionName}`;
+    editBtn.classList.remove('hidden');
+  } else if (sessionPath) {
+    const fileName = sessionPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
+    if (fileName.startsWith('temp')) {
+      label.textContent = '(unsaved)';
+      label.title = '';
+      document.title = 'Claude Session Manager';
+      editBtn.classList.add('hidden');
+    } else {
+      const name = fileName.replace(/\.cms$/i, '');
+      label.textContent = name;
+      label.title = sessionPath;
+      document.title = `Claude Session Manager - ${name}`;
+      editBtn.classList.remove('hidden');
+    }
   } else {
-    label.textContent = fileName.replace(/\.cms$/i, '');
-    label.title = sessionPath;
+    label.textContent = '';
+    label.title = '';
+    document.title = 'Claude Session Manager';
+    editBtn.classList.add('hidden');
   }
+}
+
+// Prompt user for a session name via modal. Returns the name or null if cancelled.
+function promptSessionName(title, defaultName) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('name-modal');
+    const titleEl = document.getElementById('name-modal-title');
+    const input = document.getElementById('modal-session-name');
+    const okBtn = document.getElementById('name-modal-ok');
+    const cancelBtn = document.getElementById('name-modal-cancel');
+
+    titleEl.textContent = title || 'Save Session';
+    okBtn.textContent = title === 'Rename Session' ? 'Rename' : 'Save';
+    input.value = defaultName || '';
+    modal.classList.remove('hidden');
+    input.focus();
+    input.select();
+
+    let resolved = false;
+    function finish(result) {
+      if (resolved) return;
+      resolved = true;
+      modal.classList.add('hidden');
+      document.removeEventListener('keydown', onKey);
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      resolve(result);
+    }
+    function onOk() {
+      const name = input.value.trim();
+      if (name) finish(name);
+    }
+    function onCancel() { finish(null); }
+    function onKey(e) {
+      if (e.key === 'Escape') finish(null);
+      if (e.key === 'Enter') onOk();
+    }
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    document.addEventListener('keydown', onKey);
+  });
 }
 
 function updateLayoutToggleIcon() {
   const btn = document.getElementById('btn-toggle-layout');
   if (btn) {
-    btn.textContent = layoutMode === 'side-by-side' ? '\u2630' : '\u2637';
-    btn.title = layoutMode === 'side-by-side' ? 'Switch to tab view' : 'Switch to side-by-side view';
+    const icons = { 'side-by-side': '\u2630', 'stacked': '\u2503', 'tabs': '\u2637' };
+    const titles = { 'side-by-side': 'Switch to stacked view', 'stacked': 'Switch to tab view', 'tabs': 'Switch to side-by-side view' };
+    btn.textContent = icons[layoutMode] || '\u2630';
+    btn.title = titles[layoutMode] || '';
   }
-  // Set body class for CSS (hide tab headers in side-by-side)
+  // Set body class for CSS (hide tab headers in non-tab modes)
   document.body.classList.toggle('layout-side-by-side', layoutMode === 'side-by-side');
+  document.body.classList.toggle('layout-stacked', layoutMode === 'stacked');
   document.body.classList.toggle('layout-tabs', layoutMode === 'tabs');
 }
 
@@ -104,7 +163,7 @@ function setLayoutMode(mode) {
         agentId,
         agentName: entry.name,
         agentCwd: entry.container.querySelector('.agent-dir')?.textContent || '',
-        agentColor: entry.color,
+        agentColorId: entry.colorId,
       },
     });
   }
@@ -117,7 +176,7 @@ function setLayoutMode(mode) {
   goldenLayout.clear();
   isTogglingLayout = false;
 
-  const rootType = layoutMode === 'tabs' ? ItemType.stack : ItemType.row;
+  const rootType = layoutMode === 'tabs' ? ItemType.stack : layoutMode === 'stacked' ? ItemType.column : ItemType.row;
   goldenLayout.loadLayout({
     root: {
       type: rootType,
@@ -129,30 +188,13 @@ function setLayoutMode(mode) {
 }
 
 function toggleLayout() {
-  setLayoutMode(layoutMode === 'side-by-side' ? 'tabs' : 'side-by-side');
+  const cycle = { 'side-by-side': 'stacked', 'stacked': 'tabs', 'tabs': 'side-by-side' };
+  setLayoutMode(cycle[layoutMode] || 'side-by-side');
 }
 
 function updateTabAddButton() {
-  // Remove any existing tab add buttons
+  // Remove any existing tab add buttons — no longer needed
   document.querySelectorAll('.tab-add-btn').forEach(b => b.remove());
-
-  if (layoutMode !== 'tabs') return;
-  if (getActiveAgents().size === 0) return;
-
-  // Find the GL tabs container and append a + button inline after the last tab
-  const tabsContainers = document.querySelectorAll('.lm_tabs');
-  for (const tabsContainer of tabsContainers) {
-    const btn = document.createElement('div');
-    btn.className = 'tab-add-btn';
-    btn.title = 'Add new agent';
-    btn.textContent = '+';
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      handleNewAgent();
-    });
-    tabsContainer.appendChild(btn);
-    break; // Only add to first tabs container
-  }
 }
 
 function initPanelSplitter() {
@@ -173,7 +215,9 @@ function initPanelSplitter() {
     if (!isDragging) return;
     const mainRect = mainArea.getBoundingClientRect();
     const newWidth = mainRect.right - e.clientX;
-    const clampedWidth = Math.max(200, Math.min(newWidth, mainRect.width * 0.5));
+    const minWidth = mainRect.width * 0.2;
+    const maxWidth = mainRect.width * 0.8;
+    const clampedWidth = Math.max(minWidth, Math.min(newWidth, maxWidth));
     messagePanel.style.width = clampedWidth + 'px';
     if (goldenLayout) {
       goldenLayout.updateSizeFromContainer();
@@ -200,7 +244,8 @@ function initGoldenLayout() {
     const agentId = state.agentId;
     const agentName = state.agentName;
     const agentCwd = state.agentCwd;
-    const agentColor = state.agentColor || '#569cd6';
+    const agentColorId = state.agentColorId || state.agentColor || 'blue';
+    const agentColorHex = getColorHex(agentColorId);
 
     const { terminal, fitAddon } = createAgentPanel(
       container.element,
@@ -208,12 +253,12 @@ function initGoldenLayout() {
       agentName,
       agentCwd,
       container,
-      agentColor
+      agentColorId
     );
 
     setTimeout(() => {
       if (container.tab && container.tab.element) {
-        container.tab.element.style.borderTop = `2px solid ${agentColor}`;
+        container.tab.element.style.borderTop = `2px solid ${agentColorHex}`;
       }
     }, 50);
 
@@ -237,13 +282,13 @@ function initGoldenLayout() {
   container.classList.add('empty');
 }
 
-async function addAgent(agentId, agentName, agentCwd, agentColor, autoPermissions) {
+async function addAgent(agentId, agentName, agentCwd, agentColorId, autoPermissions) {
   const container = document.getElementById('layout-container');
   container.classList.remove('empty');
   const emptyPrompt = document.getElementById('empty-agent-prompt');
   if (emptyPrompt) emptyPrompt.classList.add('hidden');
 
-  const color = assignAgentColor(agentColor);
+  const colorId = assignAgentColor(agentColorId);
 
   const agent = await window.electronAPI.createAgent({
     agentId,
@@ -261,12 +306,12 @@ async function addAgent(agentId, agentName, agentCwd, agentColor, autoPermission
       agentId: agent.id,
       agentName: agent.name,
       agentCwd: agent.cwd,
-      agentColor: color,
+      agentColorId: colorId,
     },
   };
 
   if (!goldenLayout.rootItem) {
-    const rootType = layoutMode === 'tabs' ? ItemType.stack : ItemType.row;
+    const rootType = layoutMode === 'tabs' ? ItemType.stack : layoutMode === 'stacked' ? ItemType.column : ItemType.row;
     goldenLayout.loadLayout({
       root: {
         type: rootType,
@@ -274,7 +319,7 @@ async function addAgent(agentId, agentName, agentCwd, agentColor, autoPermission
       },
     });
   } else {
-    if (layoutMode === 'side-by-side') {
+    if (layoutMode === 'side-by-side' || layoutMode === 'stacked') {
       goldenLayout.addItemAtLocation(componentConfig, [
         { typeId: 3 /* FirstRowOrColumn */, index: undefined },
       ]);
@@ -309,19 +354,21 @@ function showNewAgentModal() {
 
     // Build color swatches
     swatchContainer.innerHTML = '';
-    const defaultColor = getNextDefaultColor();
-    let selectedColor = defaultColor;
+    const defaultColorId = getNextDefaultColor();
+    let selectedColorId = defaultColorId;
 
-    AGENT_COLORS.forEach((color) => {
+    const themeColors = getThemeColors();
+    themeColors.forEach(({ id, hex }) => {
       const swatch = document.createElement('div');
       swatch.className = 'color-swatch';
-      swatch.style.backgroundColor = color;
-      swatch.title = color;
-      if (color === defaultColor) swatch.classList.add('selected');
+      swatch.style.backgroundColor = hex;
+      swatch.title = id;
+      swatch.dataset.colorId = id;
+      if (id === defaultColorId) swatch.classList.add('selected');
       swatch.addEventListener('click', () => {
         swatchContainer.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
         swatch.classList.add('selected');
-        selectedColor = color;
+        selectedColorId = id;
       });
       swatchContainer.appendChild(swatch);
     });
@@ -369,7 +416,7 @@ function showNewAgentModal() {
         }
         const autoPerms = document.getElementById('modal-auto-permissions').checked;
         modal.removeEventListener('click', onModalClick);
-        finish({ name, dir, color: selectedColor, autoPermissions: autoPerms });
+        finish({ name, dir, colorId: selectedColorId, autoPermissions: autoPerms });
       } else if (target.id === 'modal-cancel-btn') {
         modal.removeEventListener('click', onModalClick);
         finish(null);
@@ -383,7 +430,7 @@ async function handleNewAgent() {
   const result = await showNewAgentModal();
   if (!result) return;
 
-  await addAgent(null, result.name, result.dir, result.color, result.autoPermissions);
+  await addAgent(null, result.name, result.dir, result.colorId, result.autoPermissions);
   await window.electronAPI.setSetting('hasCreatedAgent', true);
 }
 
@@ -402,6 +449,7 @@ async function createAndEnterSession() {
     enterSessionState();
     updateSessionLabel(sessionPath);
     updateEmptyState();
+    window.electronAPI.rebuildMenu();
   }
 }
 
@@ -411,10 +459,13 @@ async function openSessionFromFile(filePath) {
     clearLayout();
     resetColorIndex();
     enterSessionState();
-    updateSessionLabel(result.filePath);
+    const sessionName = await window.electronAPI.getSessionName();
+    updateSessionLabel(result.filePath, sessionName);
     if (result.messages) {
       loadMessages(result.messages);
     }
+    const tasks1 = await window.electronAPI.getTasks();
+    if (tasks1 && tasks1.length > 0) loadTasks(tasks1);
     if (result.agents && result.agents.length > 0) {
       for (const agent of result.agents) {
         await addAgent(agent.id, agent.name, agent.cwd);
@@ -430,10 +481,13 @@ async function openAndEnterSession() {
     clearLayout();
     resetColorIndex();
     enterSessionState();
-    updateSessionLabel(result.filePath);
+    const sessionName = await window.electronAPI.getSessionName();
+    updateSessionLabel(result.filePath, sessionName);
     if (result.messages) {
       loadMessages(result.messages);
     }
+    const tasks2 = await window.electronAPI.getTasks();
+    if (tasks2 && tasks2.length > 0) loadTasks(tasks2);
     if (result.agents && result.agents.length > 0) {
       for (const agent of result.agents) {
         await addAgent(agent.id, agent.name, agent.cwd);
@@ -462,6 +516,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initMasterInput();
   initAgentDropdown(handleNewAgent, handleRestoreAgent);
   initPanelSplitter();
+  initTerminalFontSize();
+  initTaskPanel();
 
   // Start in no-session state
   enterNoSessionState();
@@ -473,9 +529,57 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // App close save prompt — main process asks us to prompt for a name
+  window.electronAPI.onPromptSaveName(async () => {
+    const name = await promptSessionName('Save Session', '');
+    window.electronAPI.sendSaveNameResult(name || null);
+  });
+
   // Welcome screen buttons
   document.getElementById('btn-create-session').addEventListener('click', createAndEnterSession);
   document.getElementById('btn-open-session').addEventListener('click', openAndEnterSession);
+
+  // Inline session name editing
+  const nameDisplay = document.getElementById('session-name-display');
+  const nameEditDiv = document.getElementById('session-name-edit');
+  const nameInput = document.getElementById('session-name-input');
+  const editBtn = document.getElementById('btn-edit-name');
+  const saveNameBtn = document.getElementById('btn-save-name');
+  const cancelNameBtn = document.getElementById('btn-cancel-name');
+
+  function startNameEdit() {
+    const current = document.getElementById('session-label').textContent;
+    nameInput.value = current;
+    nameDisplay.classList.add('hidden');
+    nameEditDiv.classList.remove('hidden');
+    nameInput.focus();
+    nameInput.select();
+  }
+
+  async function finishNameEdit() {
+    const newName = nameInput.value.trim();
+    if (newName) {
+      await window.electronAPI.renameSession(newName);
+      const sessionPath = await window.electronAPI.getSessionPath();
+      updateSessionLabel(sessionPath, newName);
+      window.electronAPI.rebuildMenu();
+    }
+    nameEditDiv.classList.add('hidden');
+    nameDisplay.classList.remove('hidden');
+  }
+
+  function cancelNameEdit() {
+    nameEditDiv.classList.add('hidden');
+    nameDisplay.classList.remove('hidden');
+  }
+
+  editBtn.addEventListener('click', startNameEdit);
+  saveNameBtn.addEventListener('click', finishNameEdit);
+  cancelNameBtn.addEventListener('click', cancelNameEdit);
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') finishNameEdit();
+    if (e.key === 'Escape') cancelNameEdit();
+  });
 
   // Layout toggle icon button
   document.getElementById('btn-toggle-layout').addEventListener('click', toggleLayout);
@@ -504,10 +608,16 @@ document.addEventListener('DOMContentLoaded', () => {
   window.electronAPI.onSessionRestored(async (data) => {
     if (data.sessionPath) {
       enterSessionState();
-      updateSessionLabel(data.sessionPath);
+      const sessionName = await window.electronAPI.getSessionName();
+      updateSessionLabel(data.sessionPath, sessionName);
     }
     if (data.messages && data.messages.length > 0) {
       loadMessages(data.messages);
+    }
+    // Load tasks
+    const tasks = await window.electronAPI.getTasks();
+    if (tasks && tasks.length > 0) {
+      loadTasks(tasks);
     }
     if (data.agents && data.agents.length > 0) {
       for (const agent of data.agents) {
@@ -515,6 +625,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     updateEmptyState();
+    window.electronAPI.rebuildMenu();
   });
 
   // Server port
@@ -524,45 +635,85 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- Menu handlers ---
 
+  // Helper: close session, handling the 'needs-name' save prompt
+  async function closeCurrentSession(options) {
+    const result = await window.electronAPI.closeSession(options);
+    if (result === 'needs-name') {
+      const name = await promptSessionName('Save Session', '');
+      if (!name) return false; // Cancelled
+      await window.electronAPI.saveSession(name);
+      await window.electronAPI.closeSession(options);
+      return true;
+    }
+    return !!result;
+  }
+
   window.electronAPI.onMenuEvent('menu:newSession', async () => {
     const isOpen = await window.electronAPI.isSessionOpen();
     if (isOpen) {
-      const closed = await window.electronAPI.closeSession({ forNewSession: true });
+      const closed = await closeCurrentSession({ forNewSession: true });
       if (!closed) return;
     }
     await createAndEnterSession();
+    window.electronAPI.rebuildMenu();
   });
 
   window.electronAPI.onMenuEvent('menu:openSession', async () => {
     const isOpen = await window.electronAPI.isSessionOpen();
     if (isOpen) {
-      const closed = await window.electronAPI.closeSession();
+      const closed = await closeCurrentSession();
       if (!closed) return;
     }
     await openAndEnterSession();
+    window.electronAPI.rebuildMenu();
   });
 
   window.electronAPI.onMenuEvent('menu:openRecentFile', async (filePath) => {
     const isOpen = await window.electronAPI.isSessionOpen();
     if (isOpen) {
-      const closed = await window.electronAPI.closeSession();
+      const closed = await closeCurrentSession();
       if (!closed) return;
     }
     await openSessionFromFile(filePath);
+    window.electronAPI.rebuildMenu();
   });
 
   window.electronAPI.onMenuEvent('menu:saveSession', async () => {
-    const result = await window.electronAPI.saveSession();
-    if (result) {
-      updateSessionLabel(result);
+    const isTemp = await window.electronAPI.isSessionTemp();
+    if (isTemp) {
+      // Prompt for a session name
+      const name = await promptSessionName('Save Session', '');
+      if (!name) return;
+      const result = await window.electronAPI.saveSession(name);
+      if (result) {
+        updateSessionLabel(result.filePath, result.sessionName);
+        window.electronAPI.rebuildMenu();
+      }
+    } else {
+      // Already saved — just save in place
+      const result = await window.electronAPI.saveSession();
+      if (result) {
+        updateSessionLabel(result.filePath, result.sessionName);
+      }
     }
   });
 
   window.electronAPI.onMenuEvent('menu:closeSession', async () => {
-    const closed = await window.electronAPI.closeSession();
+    const closed = await closeCurrentSession();
     if (closed) {
       enterNoSessionState();
     }
+  });
+
+  // Rename session
+  window.electronAPI.onMenuEvent('menu:renameSession', async () => {
+    const currentName = await window.electronAPI.getSessionName() || '';
+    const name = await promptSessionName('Rename Session', currentName);
+    if (!name) return;
+    await window.electronAPI.renameSession(name);
+    const sessionPath = await window.electronAPI.getSessionPath();
+    updateSessionLabel(sessionPath, name);
+    window.electronAPI.rebuildMenu();
   });
 
   // Agents menu

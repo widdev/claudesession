@@ -50,6 +50,12 @@ function setAgentsPanelState(open) {
   agentsPanelOpen = open;
 }
 
+function isTemporarySession(sessionPath) {
+  if (!sessionPath) return true;
+  const sessDir = getSessionsDir();
+  return sessionPath.startsWith(sessDir) && path.basename(sessionPath).startsWith('temp');
+}
+
 function buildMenu(mainWindow, sessionManager, ptyManager, messageServer) {
   const recentSessions = getRecentSessions();
   const recentItems = recentSessions.length > 0
@@ -76,6 +82,8 @@ function buildMenu(mainWindow, sessionManager, ptyManager, messageServer) {
     : [{ label: 'No recent sessions', enabled: false }];
 
   const hasAgents = ptyManager.getAll().length > 0;
+  const sessionIsOpen = sessionManager.isOpen();
+  const sessionIsTemp = sessionIsOpen && isTemporarySession(sessionManager.getPath());
 
   const template = [
     {
@@ -99,6 +107,7 @@ function buildMenu(mainWindow, sessionManager, ptyManager, messageServer) {
         {
           label: 'Save Session',
           accelerator: 'CmdOrCtrl+S',
+          enabled: sessionIsTemp,
           click: () => mainWindow.webContents.send('menu:saveSession'),
         },
         {
@@ -138,6 +147,12 @@ function buildMenu(mainWindow, sessionManager, ptyManager, messageServer) {
               click: () => mainWindow.webContents.send('menu:setLayout', 'side-by-side'),
             },
             {
+              label: 'Stacked',
+              type: 'radio',
+              checked: false,
+              click: () => mainWindow.webContents.send('menu:setLayout', 'stacked'),
+            },
+            {
               label: 'Tabbed',
               type: 'radio',
               checked: false,
@@ -151,15 +166,44 @@ function buildMenu(mainWindow, sessionManager, ptyManager, messageServer) {
           click: () => mainWindow.webContents.send('menu:toggleAgents'),
         },
         {
-          label: messagePanelOpen ? 'Close Session Comms' : 'Show Session Comms',
+          label: 'Toggle Tasks Panel',
+          click: () => mainWindow.webContents.send('menu:toggleTasks'),
+        },
+        {
+          label: messagePanelOpen ? 'Close Discussion' : 'Show Discussion',
           accelerator: 'CmdOrCtrl+M',
           click: () => mainWindow.webContents.send('menu:toggleMessages'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Toggle Light/Dark Theme',
+          accelerator: 'CmdOrCtrl+T',
+          click: () => mainWindow.webContents.send('menu:toggleTheme'),
+        },
+      ],
+    },
+    {
+      label: 'Actions',
+      submenu: [
+        {
+          label: 'Archive Discussion...',
+          click: () => mainWindow.webContents.send('menu:archiveDiscussion'),
+        },
+        {
+          label: 'Restore Archived Messages',
+          click: () => mainWindow.webContents.send('menu:restoreArchived'),
         },
       ],
     },
     {
       label: 'Settings',
       submenu: [
+        {
+          label: 'Rename Session...',
+          enabled: sessionIsOpen,
+          click: () => mainWindow.webContents.send('menu:renameSession'),
+        },
+        { type: 'separator' },
         {
           label: 'Clear All Settings',
           click: () => mainWindow.webContents.send('menu:clearSettings'),

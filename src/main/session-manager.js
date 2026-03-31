@@ -47,13 +47,27 @@ class SessionManager {
         from_agent TEXT NOT NULL,
         to_agent TEXT NOT NULL,
         content TEXT NOT NULL,
-        timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+        deleted INTEGER NOT NULL DEFAULT 0
       )
     `);
+    // Ensure deleted column exists on older DBs
+    try {
+      this.db.run(`ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`);
+    } catch (e) {
+      // Column already exists — ignore
+    }
     this.db.run(`
       CREATE TABLE IF NOT EXISTS session_meta (
         key TEXT PRIMARY KEY,
         value TEXT
+      )
+    `);
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
     `);
   }
@@ -143,10 +157,10 @@ class SessionManager {
 
   getMessages(filter) {
     if (!this.db) return [];
-    let sql = `SELECT * FROM messages`;
+    let sql = `SELECT * FROM messages WHERE deleted = 0`;
     const params = [];
     if (filter && filter.forAgent) {
-      sql += ` WHERE to_agent = ? OR to_agent = 'all' OR from_agent = ?`;
+      sql += ` AND (to_agent = ? OR to_agent = 'all' OR from_agent = ?)`;
       params.push(filter.forAgent, filter.forAgent);
     }
     sql += ` ORDER BY timestamp ASC, id ASC`;
@@ -164,14 +178,78 @@ class SessionManager {
 
   removeMessage(messageId) {
     if (!this.db) return;
-    this.db.run(`DELETE FROM messages WHERE id = ?`, [messageId]);
+    this.db.run(`UPDATE messages SET deleted = 1 WHERE id = ?`, [messageId]);
     this._save();
   }
 
   clearMessages() {
     if (!this.db) return;
-    this.db.run(`DELETE FROM messages`);
+    this.db.run(`UPDATE messages SET deleted = 1 WHERE deleted = 0`);
     this._save();
+  }
+
+  getArchivedMessages() {
+    if (!this.db) return [];
+    const stmt = this.db.prepare(`SELECT * FROM messages WHERE deleted = 1 ORDER BY timestamp ASC, id ASC`);
+    const messages = [];
+    while (stmt.step()) {
+      messages.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return messages;
+  }
+
+  restoreMessage(messageId) {
+    if (!this.db) return;
+    this.db.run(`UPDATE messages SET deleted = 0 WHERE id = ?`, [messageId]);
+    this._save();
+  }
+
+  restoreAllMessages() {
+    if (!this.db) return;
+    this.db.run(`UPDATE messages SET deleted = 0 WHERE deleted = 1`);
+    this._save();
+  }
+
+  // --- Tasks ---
+
+  saveTask(task) {
+    if (!this.db) return null;
+    this.db.run(
+      `INSERT OR REPLACE INTO tasks (id, content) VALUES (?, ?)`,
+      [task.id, task.content]
+    );
+    this._save();
+    return task;
+  }
+
+  removeTask(taskId) {
+    if (!this.db) return;
+    this.db.run(`DELETE FROM tasks WHERE id = ?`, [taskId]);
+    this._save();
+  }
+
+  getTasks() {
+    if (!this.db) return [];
+    const stmt = this.db.prepare(`SELECT * FROM tasks ORDER BY created_at ASC`);
+    const tasks = [];
+    while (stmt.step()) {
+      tasks.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return tasks;
+  }
+
+  getTask(taskId) {
+    if (!this.db) return null;
+    const stmt = this.db.prepare(`SELECT * FROM tasks WHERE id = ?`);
+    stmt.bind([taskId]);
+    let result = null;
+    if (stmt.step()) {
+      result = stmt.getAsObject();
+    }
+    stmt.free();
+    return result;
   }
 
   saveMeta(key, value) {

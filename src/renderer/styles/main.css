@@ -1,7 +1,8 @@
 /* Reset */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-:root {
+/* Dark theme (default) */
+:root, body.theme-dark {
   --bg-primary: #1e1e1e;
   --bg-secondary: #2d2d2d;
   --bg-tertiary: #383838;
@@ -16,6 +17,50 @@
   --success: #6a9955;
   --panel-header: #333;
   --broadcast-bg: #2a3a2a;
+  --msg-bg: var(--bg-tertiary);
+  --msg-panel-bg: var(--bg-secondary);
+  --aside-bg: #2a2a2a;
+  --aside-opacity: 0.55;
+  --modal-info-bg: #2a2a3a;
+  --modal-info-border: #4a4a6a;
+  --swatch-selected-border: #fff;
+  --swatch-hover-border: rgba(255, 255, 255, 0.3);
+  --attention-bg: #3a2a2a;
+  --tab-attention-bg: #4a2a2a;
+  --scrollbar-track: var(--bg-primary);
+  --scrollbar-thumb: var(--bg-hover);
+  --scrollbar-thumb-hover: var(--text-muted);
+}
+
+/* Light theme */
+body.theme-light {
+  --bg-primary: #f5f5f5;
+  --bg-secondary: #e8e8e8;
+  --bg-tertiary: #dcdcdc;
+  --bg-hover: #d0d0d0;
+  --text-primary: #1e1e1e;
+  --text-secondary: #555;
+  --text-muted: #888;
+  --accent: #1a6fb5;
+  --accent-hover: #145a94;
+  --border: #c0c0c0;
+  --danger: #d32f2f;
+  --success: #2d7a1e;
+  --panel-header: #e0e0e0;
+  --broadcast-bg: #e8f5e8;
+  --msg-bg: #ffffff;
+  --msg-panel-bg: #f0f0f0;
+  --aside-bg: #f0f0f0;
+  --aside-opacity: 0.55;
+  --modal-info-bg: #dde0f0;
+  --modal-info-border: #b0b4d0;
+  --swatch-selected-border: #333;
+  --swatch-hover-border: rgba(0, 0, 0, 0.3);
+  --attention-bg: #fde8e8;
+  --tab-attention-bg: #fde0e0;
+  --scrollbar-track: var(--bg-primary);
+  --scrollbar-thumb: #c0c0c0;
+  --scrollbar-thumb-hover: #999;
 }
 
 html, body {
@@ -102,6 +147,7 @@ body {
   border-bottom: 1px solid var(--border);
   height: 40px;
   flex-shrink: 0;
+  position: relative;
 }
 
 #toolbar-left {
@@ -116,9 +162,91 @@ body {
   gap: 6px;
 }
 
+#toolbar-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+#session-name-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
 #session-label {
-  color: var(--text-secondary);
-  font-size: 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.btn-edit-name {
+  background: transparent !important;
+  border: none !important;
+  color: var(--text-muted) !important;
+  cursor: pointer;
+  padding: 0 2px !important;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+#session-name-display:hover .btn-edit-name:not(.hidden) {
+  opacity: 0.7;
+}
+
+.btn-edit-name:hover {
+  color: var(--accent) !important;
+  opacity: 1 !important;
+}
+
+#session-name-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+#session-name-input {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  width: 200px;
+  outline: none;
+}
+
+.btn-name-action {
+  background: transparent !important;
+  border: none !important;
+  cursor: pointer;
+  padding: 0 3px !important;
+  font-size: 16px;
+  line-height: 1;
+}
+
+#btn-save-name {
+  color: var(--success) !important;
+}
+
+#btn-save-name:hover {
+  color: var(--accent) !important;
+}
+
+#btn-cancel-name {
+  color: var(--text-muted) !important;
+}
+
+#btn-cancel-name:hover {
+  color: var(--danger) !important;
 }
 
 /* Buttons */
@@ -209,21 +337,30 @@ button:hover {
   min-height: 0;
 }
 
+/* Agent panel wrapper (GL container + status bar) */
+#agent-panel-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+#agent-panel-wrapper.hidden {
+  display: none !important;
+}
+
+/* When agents are hidden, comms panel fills the space */
+#agent-panel-wrapper.hidden ~ #message-panel {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
 /* GoldenLayout container */
 #layout-container {
   flex: 1;
   position: relative;
   overflow: hidden;
-}
-
-#layout-container.hidden {
-  display: none !important;
-}
-
-/* When agents are hidden, comms panel fills the space */
-#layout-container.hidden ~ #message-panel {
-  width: 100% !important;
-  max-width: 100% !important;
 }
 
 /* Empty state prompt */
@@ -309,6 +446,25 @@ body.layout-tabs .agent-name-label {
   display: none;
 }
 
+/* Nudge button */
+.btn-nudge-agent {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.btn-nudge-agent:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
 /* Working path section — right aligned */
 .agent-cwd-section {
   display: flex;
@@ -391,7 +547,7 @@ body.layout-tabs .agent-header .btn-close-agent {
 }
 
 .agent-header.attention {
-  background: #3a2a2a;
+  background: var(--attention-bg);
 }
 
 .agent-terminal {
@@ -416,9 +572,8 @@ body.layout-tabs .agent-header .btn-close-agent {
 /* Message panel */
 #message-panel {
   width: 25%;
-  min-width: 200px;
-  max-width: 50%;
-  background: var(--bg-secondary);
+  min-width: 20%;
+  background: var(--msg-panel-bg);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -459,7 +614,7 @@ body.layout-tabs .agent-header .btn-close-agent {
   font-size: 18px;
 }
 
-#btn-clear-messages {
+#btn-archive-messages {
   font-size: 11px;
   padding: 1px 6px !important;
   border: 1px solid var(--border) !important;
@@ -470,9 +625,9 @@ body.layout-tabs .agent-header .btn-close-agent {
   color: var(--text-primary);
 }
 
-#btn-clear-messages:hover {
-  border-color: var(--danger) !important;
-  color: var(--danger);
+#btn-archive-messages:hover {
+  border-color: var(--accent) !important;
+  color: var(--accent);
 }
 
 #message-port-bar {
@@ -525,7 +680,7 @@ body.layout-tabs .agent-header .btn-close-agent {
   padding: 8px;
   padding-right: 24px;
   margin-bottom: 6px;
-  background: var(--bg-tertiary);
+  background: var(--msg-bg);
   border-radius: 4px;
   border-left: 3px solid var(--accent);
   position: relative;
@@ -563,7 +718,7 @@ body.layout-tabs .agent-header .btn-close-agent {
 }
 
 .message-entry .message-meta {
-  font-size: 11px;
+  font-size: 0.9em;
   color: var(--text-secondary);
   margin-bottom: 4px;
 }
@@ -578,7 +733,7 @@ body.layout-tabs .agent-header .btn-close-agent {
 }
 
 .message-entry .message-content {
-  font-size: 12px;
+  font-size: 1em;
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.4;
@@ -615,6 +770,28 @@ body.layout-tabs .agent-header .btn-close-agent {
   outline: none;
 }
 
+/* Show older messages button */
+.show-older-btn {
+  text-align: center;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--accent);
+  cursor: pointer;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+
+.show-older-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+#master-input.drag-over {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
 #btn-broadcast {
   align-self: flex-end;
   background: var(--accent);
@@ -642,8 +819,9 @@ body.layout-tabs .agent-header .btn-close-agent {
   margin: 0 !important;
 }
 
-/* In side-by-side mode, hide the tab headers completely */
-body.layout-side-by-side .lm_header {
+/* In side-by-side and stacked modes, hide the tab headers completely */
+body.layout-side-by-side .lm_header,
+body.layout-stacked .lm_header {
   display: none !important;
 }
 
@@ -685,7 +863,7 @@ body.layout-side-by-side .lm_header {
 /* Tab attention indicator */
 @keyframes tab-attention-bg {
   0%, 100% { background-color: var(--bg-tertiary); }
-  50% { background-color: #4a2a2a; }
+  50% { background-color: var(--tab-attention-bg); }
 }
 
 .lm_tab.attention {
@@ -799,16 +977,16 @@ body.layout-side-by-side .lm_header {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-hover);
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* ─── New Agent Modal ─────────────────────────────────────────────── */
@@ -899,11 +1077,11 @@ body.layout-side-by-side .lm_header {
 
 .color-swatch:hover {
   transform: scale(1.15);
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: var(--swatch-hover-border);
 }
 
 .color-swatch.selected {
-  border-color: #fff;
+  border-color: var(--swatch-selected-border);
   transform: scale(1.15);
 }
 
@@ -938,8 +1116,8 @@ body.layout-side-by-side .lm_header {
 .modal-info-box {
   display: flex;
   gap: 10px;
-  background: #2a2a3a;
-  border: 1px solid #4a4a6a;
+  background: var(--modal-info-bg);
+  border: 1px solid var(--modal-info-border);
   border-radius: 6px;
   padding: 12px;
   margin-top: 8px;
@@ -1025,4 +1203,216 @@ body.layout-side-by-side .lm_header {
 .modal-btn-secondary:hover {
   background: var(--bg-hover) !important;
   color: var(--text-primary) !important;
+}
+
+/* ─── Aside messages (#AGENT direct) ──────────────────────────────── */
+.message-entry.message-aside {
+  background: var(--broadcast-bg);
+  border-left-color: var(--success);
+}
+
+.message-entry.message-aside .broadcast-from {
+  color: var(--success);
+}
+
+/* Fade only the background by overlaying transparency */
+.message-entry.message-aside {
+  background-color: color-mix(in srgb, var(--broadcast-bg) 40%, transparent);
+  color: color-mix(in srgb, currentColor 70%, transparent);
+}
+
+/* ─── Status bars (bottom of agent panel and message panel) ───────── */
+#agent-status-bar,
+#message-status-bar {
+  display: flex;
+  align-items: center;
+  padding: 3px 8px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  height: 24px;
+}
+
+#terminal-zoom-select,
+#zoom-select {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1px 4px;
+  font-size: 10px;
+  cursor: pointer;
+  outline: none;
+}
+
+#terminal-zoom-select:focus,
+#zoom-select:focus {
+  border-color: var(--accent);
+}
+
+/* ─── Task panel ──────────────────────────────────────────────────── */
+#task-panel {
+  width: 220px;
+  min-width: 150px;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+}
+
+#task-panel.hidden {
+  display: none !important;
+}
+
+#task-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--border);
+  font-weight: bold;
+  font-size: 13px;
+}
+
+#task-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#task-panel-header button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 18px;
+}
+
+#task-panel-header button:hover {
+  color: var(--text-primary);
+}
+
+#task-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.task-entry {
+  padding: 8px;
+  margin-bottom: 6px;
+  background: var(--msg-bg, var(--bg-tertiary));
+  border-radius: 4px;
+  border-left: 3px solid var(--accent);
+  position: relative;
+  cursor: grab;
+}
+
+.task-entry:active {
+  cursor: grabbing;
+}
+
+.task-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.task-id {
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--accent);
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+.task-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.task-remove {
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.task-entry:hover .task-remove {
+  opacity: 0.7;
+}
+
+.task-remove:hover {
+  color: var(--danger);
+  opacity: 1;
+}
+
+.task-content {
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+#task-bar {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  gap: 4px;
+  background: var(--panel-header);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#task-input {
+  width: 100%;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  resize: none;
+  min-height: 50px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+#task-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+#btn-add-task {
+  align-self: flex-end;
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 4px 14px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+#btn-add-task:hover {
+  background: var(--accent-hover);
+}
+
+/* Light theme terminal overrides */
+body.theme-light .xterm {
+  background-color: #f5f5f5;
+}
+
+body.theme-light .lm_dropTargetIndicator {
+  background: rgba(26, 111, 181, 0.15) !important;
+  border-color: var(--accent) !important;
 }

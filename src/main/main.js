@@ -25,7 +25,7 @@ function createWindow() {
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    title: `ClaudeSession v${appVersion}`,
+    title: 'Claude Session Manager',
     backgroundColor: '#1e1e1e',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
@@ -89,6 +89,11 @@ async function initialize() {
     rebuildMenu();
   });
 
+  // Allow IPC handlers to trigger menu rebuild (e.g. after session save/open)
+  ipcMain.on('menu:rebuild', () => {
+    rebuildMenu();
+  });
+
   // Try to restore last session
   try {
     if (fs.existsSync(lastSessionFile)) {
@@ -137,14 +142,14 @@ async function saveCurrentSession() {
 async function handleAppClose() {
   try {
     if (sessionManager && sessionManager.isOpen()) {
-      // Always save agent state to the temp/current file
+      // Always save agent state to the current file
       await saveCurrentSession();
 
       const sessionPath = sessionManager.getPath();
       const isTemp = isTemporarySession(sessionPath);
 
       if (isTemp) {
-        // Ask if user wants to save
+        // Unsaved session — ask if user wants to save
         const { response } = await dialog.showMessageBox(mainWindow, {
           type: 'question',
           buttons: ['Save', "Don't Save", 'Cancel'],
@@ -156,16 +161,27 @@ async function handleAppClose() {
         if (response === 2) return; // Cancel — don't close
 
         if (response === 0) {
-          // Save As
-          const result = await dialog.showSaveDialog(mainWindow, {
-            title: 'Save Session As',
-            defaultPath: 'MySession.cms',
-            filters: [{ name: 'ClaudeSession Session', extensions: ['cms'] }],
+          // Prompt for a name via the renderer modal
+          mainWindow.webContents.send('app:promptSaveName');
+          const savedPath = await new Promise((resolve) => {
+            ipcMain.once('app:saveNameResult', (event, name) => {
+              if (!name) { resolve(null); return; }
+              sessionManager.saveMeta('sessionName', name);
+              const sessDir = path.join(userDataPath, 'ClaudeSession', 'Sessions');
+              if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true });
+              const safeName = name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Session';
+              let filePath = path.join(sessDir, `${safeName}.cms`);
+              let counter = 2;
+              while (fs.existsSync(filePath)) {
+                filePath = path.join(sessDir, `${safeName} (${counter}).cms`);
+                counter++;
+              }
+              sessionManager.saveTo(filePath);
+              resolve(filePath);
+            });
           });
-          if (result.canceled) return; // Cancel — don't close
-          sessionManager.saveTo(result.filePath);
-          // Saved session — remember for next launch
-          fs.writeFileSync(lastSessionFile, JSON.stringify({ sessionPath: result.filePath }), 'utf-8');
+          if (!savedPath) return; // Cancelled — don't close
+          fs.writeFileSync(lastSessionFile, JSON.stringify({ sessionPath: savedPath }), 'utf-8');
         } else {
           // Don't Save — remove last-session.json so it won't auto-restore
           if (fs.existsSync(lastSessionFile)) {
@@ -173,7 +189,7 @@ async function handleAppClose() {
           }
         }
       } else {
-        // Named session — auto-save and remember
+        // Named session — auto-save silently and remember for next launch
         fs.writeFileSync(lastSessionFile, JSON.stringify({ sessionPath }), 'utf-8');
       }
 
