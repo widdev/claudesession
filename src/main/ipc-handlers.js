@@ -144,8 +144,16 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
   });
 
   // --- Messages ---
-  ipcMain.handle('messages:getAll', () => {
-    return sessionManager.getMessages();
+  ipcMain.handle('messages:getAll', (event, filter) => {
+    return sessionManager.getMessages(filter);
+  });
+
+  ipcMain.handle('messages:senders', () => {
+    return sessionManager.getMessageSenders();
+  });
+
+  ipcMain.handle('messages:save', (event, msg) => {
+    return sessionManager.saveMessage(msg);
   });
 
   ipcMain.handle('messages:remove', (event, messageId) => {

@@ -3,7 +3,7 @@ import 'golden-layout/dist/css/goldenlayout-base.css';
 
 import { GoldenLayout, ItemType } from 'golden-layout';
 import { createAgentPanel, removeAgentPanel, writeToTerminal, getActiveAgents, fitAll, assignAgentColor, resetColorIndex, getNextDefaultColor, getThemeColors, getColorHex, refreshAgentColors, initTerminalFontSize, AGENT_COLOR_DEFS } from './agent-panel.js';
-import { initMessagePanel, initMasterInput, initGlobalMessageListeners, loadMessages } from './message-panel.js';
+import { initMessagePanel, initMasterInput, initMessageFilter, initGlobalMessageListeners, loadMessages } from './message-panel.js';
 import { initTaskPanel, loadTasks } from './task-panel.js';
 import { initAgentDropdown } from './agent-dropdown.js';
 
@@ -34,7 +34,6 @@ function enterSessionState() {
   document.getElementById('welcome-screen').classList.add('hidden');
   document.getElementById('main-area').classList.remove('hidden');
   document.getElementById('agent-dropdown-container').classList.remove('hidden');
-  document.getElementById('btn-toggle-layout').classList.remove('hidden');
   if (dockLayout) dockLayout.loadLayout(getDefaultDockConfig());
   updateEmptyState();
 }
@@ -43,7 +42,6 @@ function enterNoSessionState() {
   document.getElementById('welcome-screen').classList.remove('hidden');
   document.getElementById('main-area').classList.add('hidden');
   document.getElementById('agent-dropdown-container').classList.add('hidden');
-  document.getElementById('btn-toggle-layout').classList.add('hidden');
   document.getElementById('session-label').textContent = '';
   document.getElementById('session-label').title = '';
   document.title = 'Claude Session Manager';
@@ -115,33 +113,21 @@ function createAgentComponent(container, state) {
   container.on('destroy', () => { if (!isTogglingAgentLayout) window.electronAPI.killAgent(agentId); removeAgentPanel(agentId); setTimeout(updateEmptyState, 50); });
 }
 
-function updateLayoutToggleIcon() {
-  const btn = document.getElementById('btn-toggle-layout');
-  if (!btn) return;
-  const icons = { 'side-by-side': '\u2630', 'stacked': '\u2503', 'tabs': '\u2637' };
-  const titles = { 'side-by-side': 'Stacked', 'stacked': 'Tabs', 'tabs': 'Side by side' };
-  btn.textContent = icons[agentLayoutMode] || '\u2630';
-  btn.title = titles[agentLayoutMode] || '';
-}
-
 function setAgentLayoutMode(mode) {
   if (mode === agentLayoutMode || !agentLayout) return;
   const agents = getActiveAgents();
-  if (agents.size === 0) { agentLayoutMode = mode; updateLayoutToggleIcon(); return; }
+  if (agents.size === 0) { agentLayoutMode = mode; window.electronAPI.setSetting('agentLayoutMode', mode); window.electronAPI.rebuildMenu(); return; }
   const configs = [];
   for (const [id, entry] of agents) {
     configs.push({ type: 'component', componentType: 'agent', title: entry.name, isClosable: true,
       componentState: { agentId: id, agentName: entry.name, agentCwd: entry.container.querySelector('.agent-dir')?.title || '', agentColorId: entry.colorId } });
   }
-  agentLayoutMode = mode; updateLayoutToggleIcon();
+  agentLayoutMode = mode;
+  window.electronAPI.setSetting('agentLayoutMode', mode);
+  window.electronAPI.rebuildMenu();
   isTogglingAgentLayout = true; agentLayout.clear(); isTogglingAgentLayout = false;
   const rootType = mode === 'tabs' ? ItemType.stack : mode === 'stacked' ? ItemType.column : ItemType.row;
   agentLayout.loadLayout({ root: { type: rootType, content: configs } });
-}
-
-function toggleAgentLayout() {
-  const cycle = { 'side-by-side': 'stacked', 'stacked': 'tabs', 'tabs': 'side-by-side' };
-  setAgentLayoutMode(cycle[agentLayoutMode] || 'side-by-side');
 }
 
 // ── Dock layout (right panel — Discussion + Tasks) ──
@@ -158,9 +144,16 @@ function initDockLayout() {
           <input type="number" class="disc-port-input" min="1024" max="65535">
           <button class="disc-restart-btn">Restart</button>
           <span style="flex:1"></span>
+          <button class="disc-filter-toggle" title="Filter messages">&#x1F50D;</button>
           <button class="disc-archive-btn" title="Archive discussion">Archive</button>
         </div>
+        <div class="disc-filter-bar" style="display:none">
+          <div class="disc-filter-sender-dropdown"><span class="dropdown-label">All senders</span><div class="dropdown-menu"></div></div>
+          <input type="text" class="disc-filter-search" placeholder="Search messages...">
+          <button class="disc-filter-clear" title="Clear filters">Clear</button>
+        </div>
         <div class="disc-message-list"></div>
+        <div class="disc-input-error" style="display:none"></div>
         <div class="disc-master-bar">
           <textarea class="disc-master-input" placeholder="Broadcast to all agents... (Enter to send, Shift+Enter for newline)" rows="6"></textarea>
           <button class="disc-broadcast-btn">Send</button>
@@ -175,6 +168,7 @@ function initDockLayout() {
       </div>`;
     initMessagePanel(el);
     initMasterInput(el);
+    initMessageFilter(el);
     setupTabDragSwitch(glContainer);
   });
 
@@ -338,6 +332,14 @@ document.addEventListener('DOMContentLoaded', () => {
   initAgentDropdown(handleNewAgent, handleRestoreAgent);
   initPanelSplitter();
   initTerminalFontSize();
+
+  // Load persisted layout mode
+  window.electronAPI.getSetting('agentLayoutMode').then((mode) => {
+    if (mode && ['side-by-side', 'stacked', 'tabs'].includes(mode)) {
+      agentLayoutMode = mode;
+    }
+  });
+
   enterNoSessionState();
 
   window.addEventListener('resize', () => { if (agentLayout) agentLayout.updateSizeFromContainer(); if (dockLayout) dockLayout.updateSizeFromContainer(); });
@@ -358,8 +360,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-cancel-name').addEventListener('click', cancelNameEdit);
   nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') finishNameEdit(); if (e.key === 'Escape') cancelNameEdit(); });
 
-  document.getElementById('btn-toggle-layout').addEventListener('click', toggleAgentLayout);
-  updateLayoutToggleIcon();
   document.getElementById('btn-empty-new-agent').addEventListener('click', handleNewAgent);
 
   window.electronAPI.onAgentData((id, data) => writeToTerminal(id, data));
@@ -375,9 +375,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Menu handlers
   async function closeCurrentSession(opts) { const r = await window.electronAPI.closeSession(opts); if (r === 'needs-name') { const n = await promptSessionName('Save Session', ''); if (!n) return false; await window.electronAPI.saveSession(n); await window.electronAPI.closeSession(opts); return true; } return !!r; }
-  window.electronAPI.onMenuEvent('menu:newSession', async () => { if (await window.electronAPI.isSessionOpen()) { if (!await closeCurrentSession({ forNewSession: true })) return; } await createAndEnterSession(); });
-  window.electronAPI.onMenuEvent('menu:openSession', async () => { if (await window.electronAPI.isSessionOpen()) { if (!await closeCurrentSession()) return; } await openAndEnterSession(); });
-  window.electronAPI.onMenuEvent('menu:openRecentFile', async (fp) => { if (await window.electronAPI.isSessionOpen()) { if (!await closeCurrentSession()) return; } await openSessionFromFile(fp); });
+  window.electronAPI.onMenuEvent('menu:newSession', async () => { if (await window.electronAPI.isSessionOpen()) { if (!await closeCurrentSession({ forNewSession: true })) return; enterNoSessionState(); } await createAndEnterSession(); });
+  window.electronAPI.onMenuEvent('menu:openSession', async () => { if (await window.electronAPI.isSessionOpen()) { if (!await closeCurrentSession()) return; enterNoSessionState(); } await openAndEnterSession(); });
+  window.electronAPI.onMenuEvent('menu:openRecentFile', async (fp) => { if (await window.electronAPI.isSessionOpen()) { if (!await closeCurrentSession()) return; enterNoSessionState(); } await openSessionFromFile(fp); });
   window.electronAPI.onMenuEvent('menu:saveSession', async () => {
     if (await window.electronAPI.isSessionTemp()) { const n = await promptSessionName('Save Session', ''); if (!n) return; const r = await window.electronAPI.saveSession(n); if (r) { updateSessionLabel(r.filePath, r.sessionName); window.electronAPI.rebuildMenu(); } }
     else { const r = await window.electronAPI.saveSession(); if (r) updateSessionLabel(r.filePath, r.sessionName); }

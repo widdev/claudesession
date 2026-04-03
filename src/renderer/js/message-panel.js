@@ -1,9 +1,11 @@
-import { getAgentColor, setColorTheme, getColorTheme, refreshAgentColors, getActiveAgents } from './agent-panel.js';
+import { getAgentColor, setColorTheme, getColorTheme, refreshAgentColors, getActiveAgents, isAgentPaused } from './agent-panel.js';
 
 // Global refs — set when discussion component is created
 let msgListEl = null;
 let masterInputEl = null;
+let inputErrorEl = null;
 let globalListenersRegistered = false;
+let activeFilter = null; // { fromAgent, search } or null
 
 // Register IPC listeners ONCE (not per component creation)
 export function initGlobalMessageListeners() {
@@ -81,14 +83,80 @@ export function initMessagePanel(el) {
   window.electronAPI.getMessages().then((msgs) => { if (msgs && msgs.length > 0) loadMessages(msgs); });
 }
 
+const inputHistory = [];
+let historyIndex = -1;
+let pendingInput = '';
+let savedInputValue = ''; // Survives panel rebuilds — never lose user's draft
+
+function resizeInput(input) {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+}
+
 export function initMasterInput(el) {
   const input = el.querySelector('.disc-master-input');
   const btn = el.querySelector('.disc-broadcast-btn');
   masterInputEl = input;
+  inputErrorEl = el.querySelector('.disc-input-error');
+
+  // Restore any in-progress text that survived a panel rebuild
+  if (savedInputValue) {
+    input.value = savedInputValue;
+    resizeInput(input);
+    savedInputValue = '';
+  }
 
   btn.addEventListener('click', () => broadcast(input));
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); broadcast(input); } });
-  input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 160) + 'px'; });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); broadcast(input); return; }
+
+    // Up arrow — go back in history (only when cursor is at the start)
+    if (e.key === 'ArrowUp' && input.selectionStart === 0 && input.selectionEnd === 0) {
+      e.preventDefault();
+      dismissInputError();
+      if (inputHistory.length === 0) return;
+      if (historyIndex === -1) {
+        pendingInput = input.value;
+        historyIndex = inputHistory.length - 1;
+      } else if (historyIndex > 0) {
+        historyIndex--;
+      }
+      input.value = inputHistory[historyIndex];
+      input.setSelectionRange(0, 0);
+      resizeInput(input);
+    }
+
+    // Down arrow — go forward in history (only when cursor is at the end)
+    if (e.key === 'ArrowDown' && input.selectionStart === input.value.length) {
+      e.preventDefault();
+      dismissInputError();
+      if (historyIndex === -1) return;
+      if (historyIndex < inputHistory.length - 1) {
+        historyIndex++;
+        input.value = inputHistory[historyIndex];
+      } else {
+        // Return to the pending input (what the user was typing before navigating)
+        historyIndex = -1;
+        input.value = pendingInput;
+      }
+      const len = input.value.length;
+      input.setSelectionRange(len, len);
+      resizeInput(input);
+    }
+
+    // If user edits while viewing a history entry, that becomes the new pending input
+    // and they can't go "past" it with down arrow (handled by historyIndex === -1 guard above)
+  });
+  input.addEventListener('input', () => {
+    resizeInput(input);
+    savedInputValue = input.value;
+    dismissInputError();
+    // User edited text — leave history mode, current text becomes the pending input
+    if (historyIndex !== -1) {
+      pendingInput = input.value;
+      historyIndex = -1;
+    }
+  });
 
   // Drag-and-drop from Tasks
   input.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; input.classList.add('drag-over'); });
@@ -100,6 +168,119 @@ export function initMasterInput(el) {
   });
 }
 
+// Filter
+let filterDebounce = null;
+const selectedSenders = new Set();
+
+export function initMessageFilter(el) {
+  const toggle = el.querySelector('.disc-filter-toggle');
+  const bar = el.querySelector('.disc-filter-bar');
+  const dropdownWrapper = el.querySelector('.disc-filter-sender-dropdown');
+  const dropdownLabel = dropdownWrapper.querySelector('.dropdown-label');
+  const dropdownMenu = dropdownWrapper.querySelector('.dropdown-menu');
+  const searchInput = el.querySelector('.disc-filter-search');
+  const clearBtn = el.querySelector('.disc-filter-clear');
+
+  let totalSenderCount = 0;
+
+  function updateLabel() {
+    if (selectedSenders.size === 0) {
+      dropdownLabel.textContent = 'None selected';
+    } else if (selectedSenders.size === totalSenderCount) {
+      dropdownLabel.textContent = 'All senders';
+    } else if (selectedSenders.size === 1) {
+      dropdownLabel.textContent = [...selectedSenders][0];
+    } else {
+      dropdownLabel.textContent = `${selectedSenders.size} selected`;
+    }
+  }
+
+  function buildMenu(senders) {
+    dropdownMenu.innerHTML = '';
+    totalSenderCount = senders.length;
+    for (const s of senders) {
+      const item = document.createElement('label');
+      item.className = 'dropdown-item';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = selectedSenders.has(s);
+      cb.addEventListener('change', () => {
+        if (cb.checked) selectedSenders.add(s);
+        else selectedSenders.delete(s);
+        updateLabel();
+        applyFilter();
+      });
+      const span = document.createElement('span');
+      span.textContent = s;
+      item.appendChild(cb);
+      item.appendChild(span);
+      dropdownMenu.appendChild(item);
+    }
+  }
+
+  // Toggle dropdown open/close
+  dropdownLabel.addEventListener('click', () => {
+    dropdownMenu.classList.toggle('open');
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('mousedown', (e) => {
+    if (!dropdownWrapper.contains(e.target)) {
+      dropdownMenu.classList.remove('open');
+    }
+  });
+
+  toggle.addEventListener('click', async () => {
+    const visible = bar.style.display !== 'none';
+    if (!visible) {
+      const senders = await window.electronAPI.getMessageSenders();
+      const senderList = senders.includes('You') ? senders : ['You', ...senders];
+      // Start with all senders selected (all checked = show everything)
+      selectedSenders.clear();
+      for (const s of senderList) selectedSenders.add(s);
+      buildMenu(senderList);
+      updateLabel();
+    }
+    bar.style.display = visible ? 'none' : 'flex';
+    if (visible && activeFilter) {
+      activeFilter = null;
+      selectedSenders.clear();
+      dropdownMenu.classList.remove('open');
+      applyFilter();
+    }
+  });
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(filterDebounce);
+    filterDebounce = setTimeout(() => applyFilter(), 250);
+  });
+
+  clearBtn.addEventListener('click', () => {
+    selectedSenders.clear();
+    dropdownMenu.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    updateLabel();
+    searchInput.value = '';
+    activeFilter = null;
+    dropdownMenu.classList.remove('open');
+    applyFilter();
+  });
+
+  async function applyFilter() {
+    // All selected = no sender filter; none selected = match nobody
+    const allSelected = selectedSenders.size === totalSenderCount;
+    const fromAgents = allSelected ? undefined : [...selectedSenders];
+    const search = searchInput.value.trim() || undefined;
+    // If none selected and no search, still apply filter to show nothing
+    if (selectedSenders.size === 0 && !search) {
+      activeFilter = { fromAgents: [], search };
+    } else {
+      activeFilter = (fromAgents || search) ? { fromAgents, search } : null;
+    }
+    const msgs = await window.electronAPI.getMessages(activeFilter || undefined);
+    loadMessages(msgs);
+  }
+}
+
 // Broadcast
 function sendToAgent(agentId, text) {
   const multi = text.includes('\n') || text.includes('\r');
@@ -108,21 +289,48 @@ function sendToAgent(agentId, text) {
   else window.electronAPI.writeToAgent(agentId, text + '\r');
 }
 
-function broadcast(input) {
+async function broadcast(input) {
   const text = input.value.trim(); if (!text) return;
+
+  // Add to history (avoid duplicating the last entry)
+  if (inputHistory.length === 0 || inputHistory[inputHistory.length - 1] !== text) {
+    inputHistory.push(text);
+  }
+  historyIndex = -1;
+  pendingInput = '';
+
   const agents = getActiveAgents();
   const hashMatch = text.match(/^#(\S+)\s+([\s\S]*)$/);
   if (hashMatch) {
     const tn = hashMatch[1], mb = hashMatch[2].trim();
     let tid = null;
-    for (const [id, e] of agents) { if (e.name.toLowerCase() === tn.toLowerCase()) { tid = id; break; } }
-    if (tid && mb) { sendToAgent(tid, mb); appendAside(mb, tn); }
-    else if (!tid) appendAside(`Agent "${tn}" not found`, tn);
+    let matchedName = null;
+    for (const [id, e] of agents) {
+      if (e.name.toLowerCase() === tn.toLowerCase()) { tid = id; matchedName = e.name; break; }
+    }
+    if (tid && mb) {
+      // Save to DB first, then send and display
+      const saved = await window.electronAPI.saveMessage({ from: 'You', to: matchedName, content: mb });
+      if (!isAgentPaused(tid)) sendToAgent(tid, mb);
+      if (saved) appendMessage(saved);
+      else appendAside(mb, matchedName);
+    } else {
+      // Agent not found — broadcast the full text as normal, warn the user
+      const saved = await window.electronAPI.saveMessage({ from: 'You', to: 'All Agents', content: text });
+      for (const [id] of agents) { if (!isAgentPaused(id)) sendToAgent(id, text); }
+      if (saved) appendMessage(saved);
+      else appendBroadcast(text);
+      showInputError(`#${tn} was not recognised as a valid aside. No agent called "${tn}" was found.`);
+    }
   } else {
-    for (const [id] of agents) sendToAgent(id, text);
-    appendBroadcast(text);
+    // Save to DB first, then send and display
+    const saved = await window.electronAPI.saveMessage({ from: 'You', to: 'All Agents', content: text });
+    for (const [id] of agents) { if (!isAgentPaused(id)) sendToAgent(id, text); }
+    if (saved) appendMessage(saved);
+    else appendBroadcast(text);
   }
   input.value = ''; input.style.height = 'auto';
+  savedInputValue = '';
 }
 
 // Message rendering
@@ -131,6 +339,12 @@ let allMessages = [];
 
 export function appendMessage(msg) {
   if (!msgListEl) return;
+  // If a filter is active, only show the message if it matches
+  if (activeFilter) {
+    const fname = msg.fromName || msg.from_agent || msg.from;
+    if (activeFilter.fromAgents && !activeFilter.fromAgents.includes(fname)) return;
+    if (activeFilter.search && !(msg.content || '').toLowerCase().includes(activeFilter.search.toLowerCase())) return;
+  }
   msgListEl.appendChild(createMessageElement(msg));
   msgListEl.scrollTop = msgListEl.scrollHeight;
   autoTrimMessages();
@@ -142,6 +356,18 @@ export function appendBroadcast(text) {
   e.innerHTML = `<span class="msg-remove" title="Remove">&times;</span><div class="message-meta"><span class="message-from broadcast-from">You</span> &rarr; <span class="message-to">All Agents</span> &middot; ${esc(new Date().toLocaleTimeString())}</div><div class="message-content">${esc(text)}</div>`;
   e.querySelector('.msg-remove').addEventListener('click', () => e.remove());
   msgListEl.appendChild(e); msgListEl.scrollTop = msgListEl.scrollHeight;
+}
+
+function showInputError(text) {
+  if (!inputErrorEl) return;
+  inputErrorEl.textContent = text;
+  inputErrorEl.style.display = 'block';
+}
+
+function dismissInputError() {
+  if (!inputErrorEl) return;
+  inputErrorEl.style.display = 'none';
+  inputErrorEl.textContent = '';
 }
 
 export function appendAside(text, target) {
@@ -179,15 +405,20 @@ function autoTrimMessages() {
 }
 
 function createMessageElement(msg) {
-  const e = document.createElement('div'); e.className = 'message-entry';
   const fid = msg.from_agent || msg.from;
-  if (fid) { const c = getAgentColor(fid); e.style.borderLeftColor = c; }
+  const isUser = fid === 'You';
+  const toAgent = msg.to_agent || msg.to || '?';
+  const isAside = isUser && toAgent !== 'All Agents';
+  const e = document.createElement('div');
+  e.className = isUser ? (isAside ? 'message-entry message-aside' : 'message-entry message-broadcast') : 'message-entry';
+  if (!isUser && fid) { const c = getAgentColor(fid); e.style.borderLeftColor = c; }
   const t = msg.timestamp ? new Date(msg.timestamp + 'Z').toLocaleTimeString() : new Date().toLocaleTimeString();
-  const fn = msg.fromName || msg.from_agent || msg.from || '?';
-  const tn = msg.toName || msg.to_agent || msg.to || '?';
-  const fc = fid ? getAgentColor(fid) : null;
+  const fn = msg.fromName || fid || '?';
+  const tn = msg.toName || toAgent;
+  const fromClass = isUser ? 'message-from broadcast-from' : 'message-from';
+  const fc = !isUser && fid ? getAgentColor(fid) : null;
   const fs = fc ? ` style="color: ${fc}"` : '';
-  e.innerHTML = `<span class="msg-remove" title="Remove">&times;</span><div class="message-meta"><span class="message-from"${fs}>${esc(fn)}</span> &rarr; <span class="message-to">${esc(tn)}</span> &middot; ${esc(t)}</div><div class="message-content">${esc(msg.content || '')}</div>`;
+  e.innerHTML = `<span class="msg-remove" title="Remove">&times;</span><div class="message-meta"><span class="${fromClass}"${fs}>${esc(fn)}</span> &rarr; <span class="message-to">${esc(tn)}</span> &middot; ${esc(t)}</div><div class="message-content">${esc(msg.content || '')}</div>`;
   e.querySelector('.msg-remove').addEventListener('click', async () => { if (msg.id) await window.electronAPI.removeMessage(msg.id); e.remove(); });
   return e;
 }

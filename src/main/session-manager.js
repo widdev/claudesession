@@ -145,8 +145,12 @@ class SessionManager {
       [msg.from, msg.to, msg.content]
     );
     this._save();
-    // Retrieve the inserted row by max ID
-    const stmt = this.db.prepare(`SELECT * FROM messages ORDER BY id DESC LIMIT 1`);
+    // Retrieve the inserted row by max ID, with resolved names
+    const stmt = this.db.prepare(`SELECT m.*, a_from.name AS fromName, a_to.name AS toName
+      FROM messages m
+      LEFT JOIN agents a_from ON m.from_agent = a_from.id
+      LEFT JOIN agents a_to ON m.to_agent = a_to.id
+      ORDER BY m.id DESC LIMIT 1`);
     let result = null;
     if (stmt.step()) {
       result = stmt.getAsObject();
@@ -157,13 +161,32 @@ class SessionManager {
 
   getMessages(filter) {
     if (!this.db) return [];
-    let sql = `SELECT * FROM messages WHERE deleted = 0`;
+    let sql = `SELECT m.*, a_from.name AS fromName, a_to.name AS toName
+      FROM messages m
+      LEFT JOIN agents a_from ON m.from_agent = a_from.id
+      LEFT JOIN agents a_to ON m.to_agent = a_to.id
+      WHERE m.deleted = 0`;
     const params = [];
     if (filter && filter.forAgent) {
-      sql += ` AND (to_agent = ? OR to_agent = 'all' OR from_agent = ?)`;
+      sql += ` AND (m.to_agent = ? OR m.to_agent = 'all' OR m.from_agent = ?)`;
       params.push(filter.forAgent, filter.forAgent);
     }
-    sql += ` ORDER BY timestamp ASC, id ASC`;
+    if (filter && filter.fromAgents && filter.fromAgents.length === 0) {
+      // Empty array = no senders selected = match nothing
+      sql += ` AND 0`;
+    } else if (filter && filter.fromAgents && filter.fromAgents.length > 0) {
+      const placeholders = filter.fromAgents.map(() => '?').join(', ');
+      sql += ` AND COALESCE(a_from.name, m.from_agent) IN (${placeholders})`;
+      params.push(...filter.fromAgents);
+    } else if (filter && filter.fromAgent) {
+      sql += ` AND COALESCE(a_from.name, m.from_agent) = ?`;
+      params.push(filter.fromAgent);
+    }
+    if (filter && filter.search) {
+      sql += ` AND m.content LIKE ?`;
+      params.push(`%${filter.search}%`);
+    }
+    sql += ` ORDER BY m.timestamp ASC, m.id ASC`;
     const stmt = this.db.prepare(sql);
     if (params.length > 0) {
       stmt.bind(params);
@@ -174,6 +197,19 @@ class SessionManager {
     }
     stmt.free();
     return messages;
+  }
+
+  getMessageSenders() {
+    if (!this.db) return [];
+    const stmt = this.db.prepare(`SELECT DISTINCT COALESCE(a.name, m.from_agent) AS sender_name
+      FROM messages m
+      LEFT JOIN agents a ON m.from_agent = a.id
+      WHERE m.deleted = 0
+      ORDER BY sender_name`);
+    const senders = [];
+    while (stmt.step()) { senders.push(stmt.getAsObject().sender_name); }
+    stmt.free();
+    return senders;
   }
 
   removeMessage(messageId) {

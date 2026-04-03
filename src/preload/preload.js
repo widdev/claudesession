@@ -28,7 +28,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeSavedAgent: (id) => ipcRenderer.invoke('agents:remove', id),
 
   // Messages
-  getMessages: () => ipcRenderer.invoke('messages:getAll'),
+  getMessages: (filter) => ipcRenderer.invoke('messages:getAll', filter),
+  getMessageSenders: () => ipcRenderer.invoke('messages:senders'),
+  saveMessage: (msg) => ipcRenderer.invoke('messages:save', msg),
   removeMessage: (id) => ipcRenderer.invoke('messages:remove', id),
   clearMessages: () => ipcRenderer.invoke('messages:clear'),
   getArchivedMessages: () => ipcRenderer.invoke('messages:getArchived'),

@@ -2,6 +2,17 @@ const { Menu, app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
+function readAgentLayoutMode() {
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'ClaudeSession', 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      if (settings.agentLayoutMode) return settings.agentLayoutMode;
+    }
+  } catch (e) { /* ignore */ }
+  return 'tabs';
+}
+
 function getSessionsDir() {
   return path.join(app.getPath('userData'), 'ClaudeSession', 'Sessions');
 }
@@ -143,11 +154,14 @@ function buildMenu(mainWindow, sessionManager, ptyManager, messageServer) {
         {
           label: 'Agent Layout',
           enabled: sessionIsOpen,
-          submenu: [
-            { label: 'Side by Side', type: 'radio', checked: true, click: () => mainWindow.webContents.send('menu:setLayout', 'side-by-side') },
-            { label: 'Stacked', type: 'radio', checked: false, click: () => mainWindow.webContents.send('menu:setLayout', 'stacked') },
-            { label: 'Tabbed', type: 'radio', checked: false, click: () => mainWindow.webContents.send('menu:setLayout', 'tabs') },
-          ],
+          submenu: (() => {
+            const lm = readAgentLayoutMode();
+            return [
+              { label: 'Side by Side', type: 'radio', checked: lm === 'side-by-side', click: () => mainWindow.webContents.send('menu:setLayout', 'side-by-side') },
+              { label: 'Stacked', type: 'radio', checked: lm === 'stacked', click: () => mainWindow.webContents.send('menu:setLayout', 'stacked') },
+              { label: 'Tabbed', type: 'radio', checked: lm === 'tabs', click: () => mainWindow.webContents.send('menu:setLayout', 'tabs') },
+            ];
+          })(),
         },
         { type: 'separator' },
         { label: 'Show Discussion', enabled: sessionIsOpen, click: () => mainWindow.webContents.send('menu:showDiscussion') },

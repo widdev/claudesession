@@ -1,4 +1,4 @@
-import { getActiveAgents } from './agent-panel.js';
+import { getActiveAgents, isAgentPaused } from './agent-panel.js';
 import { appendBroadcast, appendAside } from './message-panel.js';
 
 const history = [];
@@ -131,8 +131,9 @@ function broadcast() {
       appendAside(`Agent "${targetName}" not found`, targetName);
     }
   } else {
-    // Normal broadcast to all agents
+    // Normal broadcast to all agents (skip paused ones)
     for (const [agentId] of agents) {
+      if (isAgentPaused(agentId)) continue;
       sendToAgent(agentId, text);
     }
     appendBroadcast(text);

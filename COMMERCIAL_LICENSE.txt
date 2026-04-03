@@ -1,40 +1,36 @@
-# Commercial License
+# Commercial License Terms
 
-This software is licensed under the **PolyForm Noncommercial License 1.0.0** for all non‑commercial use.
+A commercial license is required for any use of this software that exceeds the
+permissions of the PolyForm Internal Use License 1.0.0.
 
-If you wish to use this software for **commercial purposes**, including but not limited to:
+You must obtain a commercial license if:
 
-- Using it within a business  
-- Integrating it into a commercial product  
-- Offering it as part of a paid service  
-- Using it to provide services to clients  
-- Forking or modifying it for commercial benefit  
+- Your organization uses this software in production.
+- Your organization integrates it into internal systems, pipelines, or tooling.
+- Your organization distributes it, embeds it, or ships it in a product.
+- Your organization relies on it to provide a service to customers.
+- Your organization designates it as standard or approved tooling.
 
-…you must obtain a **commercial license**.
+## What the commercial license provides
+
+- Full production use rights.
+- Rights to integrate, embed, or redistribute.
+- Priority support and security notifications (optional).
+- Custom terms available for enterprise customers.
 
 ## How to obtain a commercial license
 
-Please contact:
+Contact:
 
-**[Your Name]**  
-Email: **support@snowdayonline.com**  
-Company: **Snowday Ltd**
+**Snowday Ltd**  
+**Email:** support@snowdayonline.com  
+**Website:** https://github.com/widdev/claudesession
 
-Include:
+Please include:
 
-- Your company name  
+- Your organization name  
 - Intended use case  
-- Expected scale  
-- Any required terms or compliance needs  
+- Estimated scale (team size, deployment footprint)  
 
-We will provide a commercial licensing quote and terms appropriate to your use case.
+A commercial license will be issued with pricing based on usage and scope.
 
-## Why dual licensing?
-
-This model allows:
-
-- **Individuals, students, and hobbyists** to use the software freely  
-- **Businesses** to support ongoing development through commercial licensing  
-- **Protection** against commercial forks, SaaS clones, or reselling  
-
-Thank you for supporting sustainable open development.

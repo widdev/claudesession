@@ -169,6 +169,11 @@ export function getActiveAgents() {
   return activeAgents;
 }
 
+export function isAgentPaused(agentId) {
+  const entry = activeAgents.get(agentId);
+  return entry ? entry.paused : false;
+}
+
 // Shorten a full path to "...\lastFolder" for display
 function shortenPath(fullPath) {
   if (!fullPath) return '';
@@ -196,6 +201,19 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
   const nameLabel = document.createElement('span');
   nameLabel.className = 'agent-name-label hidden';
   nameLabel.textContent = agentName;
+
+  // Exclude/Include toggle button
+  const pauseBtn = document.createElement('button');
+  pauseBtn.className = 'btn-pause-agent';
+  pauseBtn.textContent = 'Exclude';
+  pauseBtn.title = 'Exclude from receiving broadcast messages';
+  pauseBtn.addEventListener('click', () => {
+    const entry = activeAgents.get(agentId);
+    if (!entry) return;
+    entry.paused = !entry.paused;
+    pauseBtn.textContent = entry.paused ? 'Excluded' : 'Exclude';
+    pauseBtn.classList.toggle('active', entry.paused);
+  });
 
   // Nudge button
   const nudgeBtn = document.createElement('button');
@@ -232,6 +250,7 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
 
   header.appendChild(attentionBadge);
   header.appendChild(nameLabel);
+  header.appendChild(pauseBtn);
   header.appendChild(nudgeBtn);
   header.appendChild(cwdSection);
 
@@ -330,6 +349,7 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
     resizeObserver,
     idleTimer: null,
     outputBuffer: '',
+    paused: false,
   };
 
   activeAgents.set(agentId, agentEntry);
