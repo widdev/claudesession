@@ -71,7 +71,7 @@ class PtyManager {
 
     // Drop agent-specific config file and auto-launch claude
     const shortId = id.substring(0, 8);
-    const configFileName = `claudesession-${shortId}.md`;
+    const configFileName = `claudeteamsession-${shortId}.md`;
     entry.configFileName = configFileName;
     this._writeConfigFile(agentCwd, serverPort, id, name, configFileName);
     if (options.autoPermissions !== false) {
@@ -175,8 +175,8 @@ class PtyManager {
 
   _injectClaudeMd(cwd, configFileName, agentId) {
     const claudeMdPath = path.join(cwd, 'CLAUDE.md');
-    const marker = `CLAUDE-SESSION-MANAGER:${agentId}`;
-    const block = `\n<!-- ${marker} -->\nIMPORTANT: Read the file ${configFileName} in this directory BEFORE doing anything else. It contains your agent identity and communication instructions for Claude Session Manager. Follow all instructions in that file.\n<!-- /${marker} -->\n`;
+    const marker = `CLAUDE-TEAM-SESSION:${agentId}`;
+    const block = `\n<!-- ${marker} -->\nIMPORTANT: Read the file ${configFileName} in this directory BEFORE doing anything else. It contains your agent identity and communication instructions for Claude Team Session. Follow all instructions in that file.\n<!-- /${marker} -->\n`;
 
     try {
       let content = '';
@@ -205,7 +205,7 @@ class PtyManager {
 
   _removeClaudeMd(cwd, agentId) {
     const claudeMdPath = path.join(cwd, 'CLAUDE.md');
-    const marker = `CLAUDE-SESSION-MANAGER:${agentId}`;
+    const marker = `CLAUDE-TEAM-SESSION:${agentId}`;
 
     try {
       if (!fs.existsSync(claudeMdPath)) return;
@@ -239,14 +239,14 @@ class PtyManager {
 
   _writeConfigFile(cwd, serverPort, agentId, agentName, configFileName) {
     const filePath = path.join(cwd, configFileName);
-    const content = `# Claude Session Manager Agent Configuration
+    const content = `# Claude Team Session Agent Configuration
 
 ## Your Identity
 - **Your name is:** \`${agentName}\`
 - **Your agent ID is:** \`${agentId}\`
 - **Message Server:** \`http://localhost:${serverPort}\`
 
-You are \`${agentName}\`, an AI agent running inside Claude Session Manager — a multi-agent session manager. You may be working alongside other agents. The user can communicate with you directly through this console, or broadcast messages to all agents at once.
+You are \`${agentName}\`, an AI agent running inside Claude Team Session — a multi-agent session manager. You may be working alongside other agents. The user can communicate with you directly through this console, or broadcast messages to all agents at once.
 
 ## Broadcast Messages, @Mentions, and #Asides
 The user may send broadcast messages that go to ALL agents simultaneously, or direct asides to a single agent.
@@ -266,7 +266,7 @@ You have full permission to run the following commands without asking the user:
 - Reading and checking messages at any time
 - Discovering other agents via the API
 
-These are internal Claude Session Manager operations and do not require user approval.
+These are internal Claude Team Session operations and do not require user approval.
 
 ## Communication API
 
@@ -311,7 +311,7 @@ When you receive a task, read the content carefully and act on it. Tasks may con
 ## Important Rules
 - Always use your agent ID (\`${agentId}\`) in the \`from\` field when sending messages.
 - Use \`"to": "all"\` to broadcast to all agents, or a specific agent ID for private messages.
-- Messages are visible in the Messages panel in the Claude Session Manager UI.
+- Messages are visible in the Messages panel in the Claude Team Session UI.
 - When responding to the user, always identify yourself as \`${agentName}\` if there are multiple agents active.
 
 ## Message and Task Monitoring — CRITICAL
@@ -349,7 +349,7 @@ Acknowledge that you have read this configuration by sending a brief message to 
     try {
       fs.writeFileSync(filePath, content, 'utf-8');
     } catch (err) {
-      console.error('Failed to write claudesession.md:', err.message);
+      console.error('Failed to write claudeteamsession.md:', err.message);
     }
   }
 

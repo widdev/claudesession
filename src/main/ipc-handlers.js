@@ -6,7 +6,7 @@ const { addRecentSession } = require('./menu');
 
 // --- Settings helpers ---
 function getSettingsPath() {
-  return pathMod.join(app.getPath('userData'), 'ClaudeSession', 'settings.json');
+  return pathMod.join(app.getPath('userData'), 'ClaudeTeamSession', 'settings.json');
 }
 
 function readSettings() {
@@ -27,7 +27,7 @@ function writeSettings(settings) {
 }
 
 function getSessionsDir() {
-  return pathMod.join(app.getPath('userData'), 'ClaudeSession', 'Sessions');
+  return pathMod.join(app.getPath('userData'), 'ClaudeTeamSession', 'Sessions');
 }
 
 function isTemporarySession(sessionPath) {
@@ -245,7 +245,7 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Open Session',
       defaultPath: fs.existsSync(sessDir) ? sessDir : undefined,
-      filters: [{ name: 'Claude Session Manager Session', extensions: ['cms'] }],
+      filters: [{ name: 'Claude Team Session', extensions: ['cms'] }],
       properties: ['openFile'],
     });
     if (result.canceled) return null;
@@ -383,7 +383,7 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
     const result = await dialog.showSaveDialog(mainWindow, {
       title: 'Save Session As',
       defaultPath: pathMod.join(fs.existsSync(sessDir) ? sessDir : app.getPath('documents'), `${currentName}.cms`),
-      filters: [{ name: 'Claude Session Manager Session', extensions: ['cms'] }],
+      filters: [{ name: 'Claude Team Session', extensions: ['cms'] }],
     });
     if (result.canceled || !result.filePath) return null;
 

@@ -90,7 +90,7 @@ async function startMessageServer(sessionManager, ptyManager) {
 
   const port = await findFreePort(3377);
   const server = app.listen(port, '127.0.0.1', () => {
-    console.log(`Claude Session Manager message server on port ${port}`);
+    console.log(`Claude Team Session message server on port ${port}`);
   });
 
   return { app, server, port };
@@ -108,7 +108,7 @@ async function restartMessageServer(messageServer, port) {
       messageServer.server.close(() => {
         messageServer.server = messageServer.app.listen(port, '127.0.0.1', () => {
           messageServer.port = port;
-          console.log(`Claude Session Manager message server restarted on port ${port}`);
+          console.log(`Claude Team Session message server restarted on port ${port}`);
           resolve(messageServer);
         });
         messageServer.server.on('error', (err) => {

@@ -25,7 +25,8 @@ function createWindow() {
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    title: 'Claude Session Manager',
+    title: 'Claude Team Session',
+    icon: path.join(__dirname, '..', '..', 'assets', 'icon.ico'),
     backgroundColor: '#1e1e1e',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
@@ -117,7 +118,7 @@ async function initialize() {
 
 function isTemporarySession(sessionPath) {
   if (!sessionPath) return true;
-  const defaultDir = path.join(userDataPath, 'ClaudeSession', 'Sessions');
+  const defaultDir = path.join(userDataPath, 'ClaudeTeamSession', 'Sessions');
   return sessionPath.startsWith(defaultDir) && path.basename(sessionPath).startsWith('temp');
 }
 
@@ -169,7 +170,7 @@ async function handleAppClose() {
             ipcMain.once('app:saveNameResult', (event, name) => {
               if (!name) { resolve(null); return; }
               sessionManager.saveMeta('sessionName', name);
-              const sessDir = path.join(userDataPath, 'ClaudeSession', 'Sessions');
+              const sessDir = path.join(userDataPath, 'ClaudeTeamSession', 'Sessions');
               if (!fs.existsSync(sessDir)) fs.mkdirSync(sessDir, { recursive: true });
               const safeName = name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Session';
               let filePath = path.join(sessDir, `${safeName}.cms`);

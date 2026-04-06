@@ -4,7 +4,7 @@ const fs = require('fs');
 
 function readAgentLayoutMode() {
   try {
-    const settingsPath = path.join(app.getPath('userData'), 'ClaudeSession', 'settings.json');
+    const settingsPath = path.join(app.getPath('userData'), 'ClaudeTeamSession', 'settings.json');
     if (fs.existsSync(settingsPath)) {
       const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
       if (settings.agentLayoutMode) return settings.agentLayoutMode;
@@ -14,7 +14,7 @@ function readAgentLayoutMode() {
 }
 
 function getSessionsDir() {
-  return path.join(app.getPath('userData'), 'ClaudeSession', 'Sessions');
+  return path.join(app.getPath('userData'), 'ClaudeTeamSession', 'Sessions');
 }
 
 function getRecentSessionsFile() {
@@ -209,13 +209,13 @@ function buildMenu(mainWindow, sessionManager, ptyManager, messageServer) {
       label: 'Help',
       submenu: [
         {
-          label: `About Claude Session Manager`,
+          label: `About Claude Team Session`,
           click: () => {
             const { dialog } = require('electron');
             dialog.showMessageBox(mainWindow, {
               type: 'info',
-              title: 'About Claude Session Manager',
-              message: 'Claude Session Manager',
+              title: 'About Claude Team Session',
+              message: 'Claude Team Session',
               detail: `Multi-agent Claude Code session manager.\n\nVersion ${app.getVersion()}`,
             });
           },

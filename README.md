@@ -1,8 +1,8 @@
-# claudesession
-Claude Session Manager
+# claudeteamsession
+Claude Team Session
 
 ## User Guide ##
-For help on using Claude Session Manager, see the separate user-guide.md
+For help on using Claude Team Session, see the separate user-guide.md
 
 
 ## 📜 Licensing

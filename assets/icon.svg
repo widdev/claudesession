@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <clipPath id="rounded">
+      <rect x="20" y="20" width="472" height="472" rx="64" ry="64"/>
+    </clipPath>
+  </defs>
+
+  <!-- White background visible as borders between shapes -->
+  <rect x="20" y="20" width="472" height="472" rx="64" ry="64" fill="white"/>
+
+  <g clip-path="url(#rounded)">
+    <!-- Top-left (L-shaped, notch at inner corner) -->
+    <path d="M20,20 L253,20 L253,150 L150,150 L150,253 L20,253 Z" fill="#D97757"/>
+
+    <!-- Top-right (L-shaped, notch at inner corner) -->
+    <path d="M259,20 L492,20 L492,253 L362,253 L362,150 L259,150 Z" fill="#D97757"/>
+
+    <!-- Bottom-left (L-shaped, notch at inner corner) -->
+    <path d="M20,259 L150,259 L150,362 L253,362 L253,492 L20,492 Z" fill="#D97757"/>
+
+    <!-- Bottom-right (L-shaped, notch at inner corner) -->
+    <path d="M362,259 L492,259 L492,492 L259,492 L259,362 L362,362 Z" fill="#D97757"/>
+
+    <!-- Center hub square (smaller, with white showing behind) -->
+    <rect x="170" y="170" width="172" height="172" fill="#5A2E1A"/>
+  </g>
+</svg>

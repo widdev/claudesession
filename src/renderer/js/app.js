@@ -44,7 +44,7 @@ function enterNoSessionState() {
   document.getElementById('agent-dropdown-container').classList.add('hidden');
   document.getElementById('session-label').textContent = '';
   document.getElementById('session-label').title = '';
-  document.title = 'Claude Session Manager';
+  document.title = 'Claude Team Session';
   if (agentLayout && agentLayout.rootItem) { isTogglingAgentLayout = true; agentLayout.clear(); isTogglingAgentLayout = false; }
   if (dockLayout && dockLayout.rootItem) dockLayout.clear();
   resetColorIndex();
@@ -68,12 +68,12 @@ function updateSessionLabel(sessionPath, sessionName) {
   const editBtn = document.getElementById('btn-edit-name');
   if (sessionName) {
     label.textContent = sessionName; label.title = sessionPath || '';
-    document.title = `Claude Session Manager - ${sessionName}`; editBtn.classList.remove('hidden');
+    document.title = `Claude Team Session - ${sessionName}`; editBtn.classList.remove('hidden');
   } else if (sessionPath) {
     const fn = sessionPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
-    if (fn.startsWith('temp')) { label.textContent = '(unsaved)'; label.title = ''; document.title = 'Claude Session Manager'; editBtn.classList.add('hidden'); }
-    else { const n = fn.replace(/\.cms$/i, ''); label.textContent = n; label.title = sessionPath; document.title = `Claude Session Manager - ${n}`; editBtn.classList.remove('hidden'); }
-  } else { label.textContent = ''; label.title = ''; document.title = 'Claude Session Manager'; editBtn.classList.add('hidden'); }
+    if (fn.startsWith('temp')) { label.textContent = '(unsaved)'; label.title = ''; document.title = 'Claude Team Session'; editBtn.classList.add('hidden'); }
+    else { const n = fn.replace(/\.cms$/i, ''); label.textContent = n; label.title = sessionPath; document.title = `Claude Team Session - ${n}`; editBtn.classList.remove('hidden'); }
+  } else { label.textContent = ''; label.title = ''; document.title = 'Claude Team Session'; editBtn.classList.add('hidden'); }
 }
 
 function promptSessionName(title, defaultName) {

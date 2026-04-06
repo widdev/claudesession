@@ -1,8 +1,8 @@
 {
-  "name": "claude-session",
-  "version": "1.0.19",
-  "description": "Multi-agent Claude Code session manager with inter-agent messaging",
-  "author": "Claude Session Manager",
+  "name": "claude-team-session",
+  "version": "1.0.23",
+  "description": "Multi-agent Claude Code team session with inter-agent messaging",
+  "author": "Claude Team Session",
   "main": "src/main/main.js",
   "scripts": {
     "build:renderer": "esbuild src/renderer/js/app.js --bundle --outfile=src/renderer/dist/bundle.js --platform=browser --format=iife --loader:.css=css",
@@ -11,9 +11,9 @@
     "dist:dir": "npm run build:renderer && electron-builder --win --dir"
   },
   "build": {
-    "appId": "com.claude-session-manager.app",
+    "appId": "com.claude-team-session.app",
     "npmRebuild": false,
-    "productName": "Claude Session Manager",
+    "productName": "Claude Team Session",
     "directories": {
       "output": "dist"
     },
@@ -37,16 +37,16 @@
           ]
         }
       ],
-      "icon": null
+      "icon": "assets/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Claude Session Manager"
+      "shortcutName": "Claude Team Session"
     },
     "portable": {
-      "artifactName": "Claude-Session-Manager-Portable.exe"
+      "artifactName": "Claude-Team-Session-Portable.exe"
     }
   },
   "dependencies": {
@@ -61,6 +61,8 @@
     "electron": "~30.5.1",
     "electron-builder": "^26.8.1",
     "esbuild": "^0.27.4",
-    "golden-layout": "^2.6.0"
+    "golden-layout": "^2.6.0",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5"
   }
 }

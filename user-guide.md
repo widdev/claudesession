@@ -1,4 +1,4 @@
-# Claude Session Manager User Guide
+# Claude Team Session User Guide
 
 ## Table of Contents
 
@@ -22,7 +22,7 @@
 
 ## Introduction
 
-Claude Session Manager is a desktop application for Windows that lets you run multiple Claude Code sessions side by side with built-in inter-agent messaging. Each session can contain multiple **agents** — independent Claude Code instances, each with their own terminal, working directory, and identity. Agents can communicate with each other through a shared messaging system, and you can broadcast instructions to all agents at once or send private asides to individual agents.
+Claude Team Session is a desktop application for Windows that lets you run multiple Claude Code sessions side by side with built-in inter-agent messaging. Each session can contain multiple **agents** — independent Claude Code instances, each with their own terminal, working directory, and identity. Agents can communicate with each other through a shared messaging system, and you can broadcast instructions to all agents at once or send private asides to individual agents.
 
 This is useful for coordinating multi-agent workflows such as:
 
@@ -37,21 +37,21 @@ This is useful for coordinating multi-agent workflows such as:
 ## System Requirements
 
 - **Operating system:** Windows 10 or later (64-bit)
-- **Git for Windows:** Required (includes git-bash, which Claude Session Manager uses as the shell)
+- **Git for Windows:** Required (includes git-bash, which Claude Team Session uses as the shell)
 - **Node.js:** Required (Claude Code depends on it)
 - **Claude Code:** Required (each agent launches Claude Code automatically)
 - **Anthropic API key or Claude subscription:** Required for Claude Code to function
-- **Disk space:** Approximately 200 MB for Claude Session Manager, plus space for the prerequisites above
+- **Disk space:** Approximately 200 MB for Claude Team Session, plus space for the prerequisites above
 
 ---
 
 ## Installation
 
-Before installing Claude Session Manager itself, you need to install its prerequisites. If you already have any of these installed, skip that step.
+Before installing Claude Team Session itself, you need to install its prerequisites. If you already have any of these installed, skip that step.
 
 ### Step 1: Install Git for Windows
 
-Claude Session Manager uses git-bash (included with Git for Windows) as the shell environment for all agents. Claude Code also requires git-bash on Windows.
+Claude Team Session uses git-bash (included with Git for Windows) as the shell environment for all agents. Claude Code also requires git-bash on Windows.
 
 1. Download the installer from [https://git-scm.com/download/win](https://git-scm.com/download/win). Choose the **64-bit Git for Windows Setup** option.
 2. Run the installer. The default settings are fine for most users. In particular:
@@ -64,7 +64,7 @@ Claude Session Manager uses git-bash (included with Git for Windows) as the shel
    ```
    You should see something like `git version 2.x.x.windows.x`.
 
-**Non-standard install path:** If you install Git to a location other than `C:\Program Files\Git`, set the environment variable `GIT_BASH_PATH` to the full path of `bash.exe` (e.g. `D:\Tools\Git\bin\bash.exe`). Claude Session Manager checks the following paths automatically:
+**Non-standard install path:** If you install Git to a location other than `C:\Program Files\Git`, set the environment variable `GIT_BASH_PATH` to the full path of `bash.exe` (e.g. `D:\Tools\Git\bin\bash.exe`). Claude Team Session checks the following paths automatically:
 - `C:\Program Files\Git\bin\bash.exe`
 - `C:\Program Files\Installed\Git\bin\bash.exe`
 - `C:\Program Files (x86)\Git\bin\bash.exe`
@@ -75,7 +75,7 @@ Claude Code is a Node.js application, so Node.js must be installed on your syste
 
 1. Download the LTS installer from [https://nodejs.org](https://nodejs.org). Choose the **Windows Installer (.msi)** for 64-bit.
 2. Run the installer. Accept the default settings.
-3. When the installer offers to **"Automatically install the necessary tools"** (native module build tools), you can skip this — it is not required for Claude Session Manager.
+3. When the installer offers to **"Automatically install the necessary tools"** (native module build tools), you can skip this — it is not required for Claude Team Session.
 4. To verify, open a new Command Prompt or PowerShell and run:
    ```
    node --version
@@ -85,7 +85,7 @@ Claude Code is a Node.js application, so Node.js must be installed on your syste
 
 ### Step 3: Install Claude Code
 
-Claude Code is Anthropic's CLI for Claude. Claude Session Manager launches it inside each agent terminal.
+Claude Code is Anthropic's CLI for Claude. Claude Team Session launches it inside each agent terminal.
 
 1. Open a Command Prompt, PowerShell, or git-bash terminal.
 2. Install Claude Code globally via npm:
@@ -101,20 +101,20 @@ Claude Code is Anthropic's CLI for Claude. Claude Session Manager launches it in
 
 For more information on Claude Code setup and authentication, see the official documentation at [https://docs.anthropic.com/en/docs/claude-code](https://docs.anthropic.com/en/docs/claude-code).
 
-### Step 4: Install Claude Session Manager
+### Step 4: Install Claude Team Session
 
-Claude Session Manager is distributed in two formats. You only need one.
+Claude Team Session is distributed in two formats. You only need one.
 
 #### Standard Installer (recommended)
 
-1. Run **Claude Session Manager Setup x.x.x.exe**.
+1. Run **Claude Team Session Setup x.x.x.exe**.
 2. Follow the on-screen prompts. You can choose the installation directory.
 3. A desktop shortcut and Start Menu entry will be created automatically.
-4. Launch Claude Session Manager from the desktop shortcut or Start Menu.
+4. Launch Claude Team Session from the desktop shortcut or Start Menu.
 
 #### Portable Version
 
-1. Run **Claude-Session-Manager-Portable.exe** from any location (desktop, USB drive, etc.).
+1. Run **Claude-Team-Session-Portable.exe** from any location (desktop, USB drive, etc.).
 2. The application extracts to a temporary folder and launches immediately.
 3. No installation is required and no files are written to your system permanently.
 
@@ -122,7 +122,7 @@ Claude Session Manager is distributed in two formats. You only need one.
 
 ## Getting Started
 
-When you first launch Claude Session Manager, you will see a welcome screen with two options:
+When you first launch Claude Team Session, you will see a welcome screen with two options:
 
 - **Create New Session** — starts a fresh session
 - **Open Existing Session** — opens a previously saved `.cms` session file
@@ -170,7 +170,7 @@ The session name appears in the toolbar centre and the window title bar.
 
 ### Auto-restore
 
-When you close Claude Session Manager with a saved session open, it automatically reopens that session the next time you launch the application.
+When you close Claude Team Session with a saved session open, it automatically reopens that session the next time you launch the application.
 
 ### Recent sessions
 
@@ -230,7 +230,7 @@ Each agent header contains a **Nudge** button. Clicking it sends a prompt to the
 
 ### Agent configuration
 
-When an agent is created, Claude Session Manager writes a configuration file (`claudesession-XXXXXXXX.md`) to the agent's working directory. This file contains:
+When an agent is created, Claude Team Session writes a configuration file (`claudeteamsession-XXXXXXXX.md`) to the agent's working directory. This file contains:
 
 - The agent's name and ID
 - The messaging server URL
@@ -352,7 +352,7 @@ Tasks are draggable. You can drag a task from the Tasks panel and drop it into t
 
 ### How agents access tasks
 
-Agents can retrieve tasks via the REST API that Claude Session Manager provides:
+Agents can retrieve tasks via the REST API that Claude Team Session provides:
 
 - **List all tasks:** `GET http://localhost:{port}/api/tasks`
 - **Get a specific task:** `GET http://localhost:{port}/api/tasks/{TASK_ID}`
@@ -369,7 +369,7 @@ If you close the Tasks tab, you can reopen it from **View > Show Tasks** in the 
 
 ### Agent layout modes
 
-Claude Session Manager offers three layout modes for arranging agent panels. You can cycle through them using the layout toggle button in the top-right of the toolbar.
+Claude Team Session offers three layout modes for arranging agent panels. You can cycle through them using the layout toggle button in the top-right of the toolbar.
 
 #### Side by Side
 
@@ -413,7 +413,7 @@ The vertical **splitter bar** between the agent area and the dock panel can be d
 
 ### Light and Dark themes
 
-Claude Session Manager supports both dark (default) and light themes. Toggle between them using:
+Claude Team Session supports both dark (default) and light themes. Toggle between them using:
 
 - **Keyboard:** Press **Ctrl+T**
 - **Menu:** Use **View > Toggle Light/Dark Theme**
@@ -479,7 +479,7 @@ Available zoom levels: 75%, 85%, 100% (default), 115%, 130%, 150%. The base font
 | Save Session | Ctrl+S | Save the current session (prompts for a name if unsaved) |
 | Save Session As... | Ctrl+Shift+S | Save the current session to a new file location |
 | Close Session | | Close the current session (prompts to save if unsaved) |
-| Quit | | Exit Claude Session Manager |
+| Quit | | Exit Claude Team Session |
 
 ### Agents
 
@@ -517,7 +517,7 @@ Available zoom levels: 75%, 85%, 100% (default), 115%, 130%, 150%. The base font
 
 | Menu Item | Description |
 |---|---|
-| About Claude Session Manager | Show version and application information |
+| About Claude Team Session | Show version and application information |
 
 ---
 
@@ -525,7 +525,7 @@ Available zoom levels: 75%, 85%, 100% (default), 115%, 130%, 150%. The base font
 
 ### Claude Code does not launch in the agent terminal
 
-- **Check that Git for Windows is installed.** Claude Session Manager uses git-bash as the shell. It looks for bash.exe in standard Git installation paths (`C:\Program Files\Git\bin\bash.exe` and similar).
+- **Check that Git for Windows is installed.** Claude Team Session uses git-bash as the shell. It looks for bash.exe in standard Git installation paths (`C:\Program Files\Git\bin\bash.exe` and similar).
 - **Set the GIT_BASH_PATH environment variable** if Git is installed in a non-standard location. Point it to the full path of `bash.exe`.
 - **Ensure Claude Code is installed** and accessible from the command line. Open a regular terminal and type `claude` to verify.
 
@@ -559,12 +559,12 @@ Available zoom levels: 75%, 85%, 100% (default), 115%, 130%, 150%. The base font
 
 ### Port conflict on startup
 
-- The messaging server starts on port 3377 by default. If another application is using this port, Claude Session Manager automatically finds the next available port.
+- The messaging server starts on port 3377 by default. If another application is using this port, Claude Team Session automatically finds the next available port.
 - You can also manually change the port in the Discussion panel and click **Restart**.
 
 ### "Trust this folder" prompt
 
-- When Claude Code launches in a new directory for the first time, it may ask you to trust the folder. Claude Session Manager attempts to handle this automatically by sending `y` when a trust prompt is detected, but if it fails, click into the agent's terminal and type `y` followed by Enter.
+- When Claude Code launches in a new directory for the first time, it may ask you to trust the folder. Claude Team Session attempts to handle this automatically by sending `y` when a trust prompt is detected, but if it fails, click into the agent's terminal and type `y` followed by Enter.
 
 ### Agent not responding to broadcasts or tasks
 
@@ -579,18 +579,18 @@ Available zoom levels: 75%, 85%, 100% (default), 115%, 130%, 150%. The base font
 ### Standard installation
 
 1. Open **Windows Settings > Apps > Apps & Features** (or **Add or Remove Programs** on older Windows versions).
-2. Find **Claude Session Manager** in the list.
+2. Find **Claude Team Session** in the list.
 3. Click **Uninstall** and follow the prompts.
 
 Session files (`.cms`) stored outside the installation directory are not removed automatically. Delete them manually if you no longer need them.
 
 ### Portable version
 
-Simply delete the **Claude-Session-Manager-Portable.exe** file. No other cleanup is needed.
+Simply delete the **Claude-Team-Session-Portable.exe** file. No other cleanup is needed.
 
 ### Removing application data
 
-Claude Session Manager stores settings and temporary session files in your AppData folder:
+Claude Team Session stores settings and temporary session files in your AppData folder:
 
 ```
 %APPDATA%\claude-session\
