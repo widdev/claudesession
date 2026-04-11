@@ -278,41 +278,25 @@ When you see a **Message**, read it and act on the instructions. When you see **
 
 ## How to Reply — IMPORTANT
 
-To send a message to the Discussion panel, simply **include the DISCUSS: prefix in any output**. Any text you write to the terminal containing \`DISCUSS:\` will be automatically detected and sent to the Discussion panel. You can include it in your normal response text — no need for special commands.
+To send a message to the Discussion panel, wrap it in \`<DISCUSSION>\` tags anywhere in your response. The session manager automatically detects these tags in your terminal output and posts the message.
 
 **Broadcast to everyone:**
-Just include \`DISCUSS: your message here\` anywhere in your response.
+\`<DISCUSSION>your message here</DISCUSSION>\`
 
 **Direct a message to a specific agent (all agents see it, target is called to action):**
-\`DISCUSS @AgentName: your message here\`
+\`<DISCUSSION>@AgentName your message here</DISCUSSION>\`
 
 **Direct to the user (only appears in Discussion panel, not sent to agents):**
-\`DISCUSS @User: your message here\`
+\`<DISCUSSION>@User your message here</DISCUSSION>\`
 
 **Private aside to one or more agents (only they see it):**
-\`DISCUSS #AgentName: your message here\`
+\`<DISCUSSION>#AgentName your message here</DISCUSSION>\`
 
 **Multiple targets:**
-\`DISCUSS @Agent1 @Agent2: coordinate on this\`
-\`DISCUSS #Agent1 #Agent2: private coordination\`
+\`<DISCUSSION>@Agent1 @Agent2 coordinate on this</DISCUSSION>\`
+\`<DISCUSSION>#Agent1 #Agent2 private coordination</DISCUSSION>\`
 
 Use \`@\` and \`#\` targeting to reduce noise. Do NOT broadcast when a targeted message will do — this saves tokens for all agents.
-
-## Message Conventions
-
-- **No prefix** = broadcast to all agents, everyone should read and act if relevant
-- **@AgentName** = call to action for that agent; others see it as info only
-- **#AgentName** = private aside; ONLY that agent receives it
-- **@User** = directed to the user only; no agents receive it
-- Multiple agents can be targeted: \`@Agent1 @Agent2\` or \`#Agent1 #Agent2\`
-
-## Critical Rules for Info Messages
-
-When you receive an **Info** message (one marked "Info from X (to @SomeoneElse)"):
-1. **Do NOT act on it** — it is for your awareness only
-2. **Do NOT relay or summarize it** to the target agent — they already received it directly
-3. **Do NOT respond** to it unless it directly affects your current work
-4. Relaying info messages wastes tokens and creates noise
 
 ## Tasks
 
@@ -341,14 +325,14 @@ curl -s http://localhost:${serverPort}/api/workitems/WORK_ITEM_ID
 ## Permissions
 
 You have full permission to:
-- Include \`DISCUSS: ...\` in your responses to send messages to the Discussion panel
+- Include \`<DISCUSSION>...</DISCUSSION>\` tags in your responses to send messages to the Discussion panel
 - Run \`curl\` commands to \`http://localhost:${serverPort}\`
 - Read and run work items returned from the API
 
 ## Instructions
 Acknowledge that you have read this configuration by sending a brief message to the Discussion panel identifying yourself. Simply include in your response:
 
-\`DISCUSS: ${agentName} ready.\`
+\`<DISCUSSION>${agentName} ready.</DISCUSSION>\`
 
 Then await further instructions from the user. Messages will be delivered to your terminal automatically.
 `;
@@ -523,9 +507,8 @@ Then await further instructions from the user. Messages will be delivered to you
   }
 
   /**
-   * Detect DISCUSS: pattern in agent PTY output and relay to message server.
-   * Claude Code's TUI renders >> as Unicode box-drawing chars (▎ ▎), so we
-   * match on "DISCUSS" alone — the >> prefix is unreliable after ANSI stripping.
+   * Detect <DISCUSSION>...</DISCUSSION> tags in agent PTY output and relay to message server.
+   * XML tags survive Claude Code's TUI rendering intact (unlike >> which gets mangled).
    */
   _detectDiscussReply(agentId, data) {
     const entry = this.ptys.get(agentId);
@@ -534,49 +517,31 @@ Then await further instructions from the user. Messages will be delivered to you
     const str = typeof data === 'string' ? data : data.toString();
     const clean = this._stripAnsi(str);
 
-    // Accumulate into line buffer
+    // Accumulate into buffer
     entry.discussBuffer += clean;
 
     // Keep buffer manageable
-    if (entry.discussBuffer.length > 4000) {
-      entry.discussBuffer = entry.discussBuffer.slice(-4000);
+    if (entry.discussBuffer.length > 8000) {
+      entry.discussBuffer = entry.discussBuffer.slice(-8000);
     }
 
-    // Normalize line endings and split
-    const normalized = entry.discussBuffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    const lines = normalized.split('\n');
+    // Look for complete <DISCUSSION>...</DISCUSSION> tags
+    const tagRegex = /<DISCUSSION>([\s\S]*?)<\/DISCUSSION>/gi;
+    let match;
+    let lastMatchEnd = 0;
 
-    // Only process complete lines (keep last partial for next time)
-    entry.discussBuffer = lines.pop() || '';
+    while ((match = tagRegex.exec(entry.discussBuffer)) !== null) {
+      const raw = match[1].trim();
+      if (!raw) continue;
+      lastMatchEnd = match.index + match[0].length;
 
-    for (const line of lines) {
-      // Find DISCUSS anywhere in the line (>> may be mangled by TUI rendering)
-      const idx = line.indexOf('DISCUSS');
-      if (idx === -1) continue;
+      console.log(`[DISCUSS relay] Agent ${entry.name}: "${raw}"`);
+      this.messageCallback({ from: agentId, to: 'all', content: raw });
+    }
 
-      // Extract everything after DISCUSS
-      const after = line.substring(idx + 7).trim(); // 7 = 'DISCUSS'.length
-      if (!after || after[0] !== ':') continue; // must be followed by colon
-
-      // Get the message after the colon
-      const message = after.substring(1).trim();
-      if (!message) continue;
-
-      // Skip if this looks like an echo command line
-      const before = line.substring(0, idx);
-      if (/echo\s/i.test(before) && /["'`]/.test(before)) continue;
-
-      // Parse optional @Target or #Target before the actual message content
-      let content = message;
-      const targetMatch = message.match(/^((?:[@#]\w+\s*)+)\s+([\s\S]+)$/);
-      if (targetMatch) {
-        content = targetMatch[1].trim() + ' ' + targetMatch[2].trim();
-      }
-
-      if (content) {
-        console.log(`[DISCUSS relay] Agent ${entry.name}: "${content}"`);
-        this.messageCallback({ from: agentId, to: 'all', content });
-      }
+    // Remove processed tags from buffer, keep unmatched tail
+    if (lastMatchEnd > 0) {
+      entry.discussBuffer = entry.discussBuffer.substring(lastMatchEnd);
     }
   }
 

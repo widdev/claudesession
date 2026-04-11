@@ -102,17 +102,21 @@ async function startMessageServer(sessionManager, ptyManager) {
     res.json(item);
   });
 
-  // Wire up >>DISCUSS: relay — when agents echo >>DISCUSS: text,
-  // pty-manager detects it and calls back here to post the message.
+  // Wire up <DISCUSSION> tag relay — pty-manager detects tags and calls back here.
   ptyManager.onDiscussMessage((msg) => {
-    const { from, to, content } = msg;
-    let saved = sessionManager.saveMessage({ from, to, content });
+    const { from, content } = msg;
+
+    // Parse @targets and #asides from the content
+    const parsed = ptyManager._parseMessageTargets(content);
+    const to = parsed.type === 'aside' ? parsed.targets.join(',') : 'all';
+
+    let saved = sessionManager.saveMessage({ from, to, content: parsed.cleanContent });
     if (!saved) {
       saved = {
         id: Date.now(),
         from_agent: from,
         to_agent: to,
-        content,
+        content: parsed.cleanContent,
         timestamp: new Date().toISOString(),
       };
     }
@@ -121,7 +125,9 @@ async function startMessageServer(sessionManager, ptyManager) {
     const enriched = {
       ...saved,
       fromName: fromAgent ? fromAgent.name : from,
-      toName: 'all',
+      toName: to === 'all' ? 'all' : parsed.targetDisplay,
+      targetType: parsed.type,
+      targets: parsed.targets,
     };
 
     // Push to Discussion panel
@@ -130,6 +136,15 @@ async function startMessageServer(sessionManager, ptyManager) {
       windows[0].webContents.send('message:new', enriched);
     }
 
+    // Route targeted messages to agent PTYs
+    if (parsed.type !== 'plain') {
+      ptyManager.routeMessage({
+        from,
+        to,
+        content: parsed.cleanContent,
+        fromName: enriched.fromName,
+      });
+    }
   });
 
   const port = await findFreePort(3377);
