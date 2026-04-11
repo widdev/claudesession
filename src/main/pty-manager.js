@@ -562,10 +562,14 @@ Then await further instructions from the user. Messages will be delivered to you
       const trimmed = line.trim();
 
       // Match: >>DISCUSS: message  or  >>DISCUSS @Target: message
-      // Skip lines where >>DISCUSS appears inside a command (shell echo, quotes, etc.)
-      if (/echo\s/i.test(line) || /["'`]/.test(line.split('>>DISCUSS')[0])) continue;
       const m = trimmed.match(/^>>DISCUSS\s*(.*)/);
       if (!m) continue;
+
+      // Skip lines where >>DISCUSS appears inside a command (shell echo, quotes, etc.)
+      // Only skip if >>DISCUSS is NOT at the start (in case it appears mid-line in a command)
+      const beforeDiscuss = line.substring(0, line.indexOf('>>DISCUSS')).trim();
+      if (beforeDiscuss && /echo\s/i.test(beforeDiscuss)) continue;
+      if (beforeDiscuss && /["'`]/.test(beforeDiscuss)) continue;
 
       const afterDiscuss = m[1].trim();
       if (!afterDiscuss) continue;
