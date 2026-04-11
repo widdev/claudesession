@@ -19,7 +19,7 @@
 
 ## Project Structure
 - src/main/main.js - App lifecycle, window, session restore, DevOps auto-reconnect from global settings
-- src/main/pty-manager.js - PTY spawning, git-bash detection, shell functions, agent config
+- src/main/pty-manager.js - PTY spawning, git-bash detection, shell scripts, agent config, message routing
 - src/main/session-manager.js - sql.js SQLite (agents, messages, metadata, work_items table)
 - src/main/message-server.js - Express REST API for inter-agent messaging + work items endpoints
 - src/main/ipc-handlers.js - All IPC handlers (PTY, session, messages, tasks, DevOps, work items)
@@ -29,7 +29,7 @@
 - src/renderer/js/app.js - GoldenLayout, agent lifecycle, session restore, dock panel registration
 - src/renderer/js/agent-panel.js - xterm.js terminals, resize, rename, cost/token badge
 - src/renderer/js/message-panel.js - Message display, port config, clear/remove
-- src/renderer/js/master-input.js - Broadcast to all agents
+- src/renderer/js/master-input.js - Broadcast to all agents, [Discussion] prefix tagging
 - src/renderer/js/agent-dropdown.js - New/recent agents dropdown
 - src/renderer/js/devops-panel.js - Azure DevOps panel (login, projects, backlog table, create dialog, imported view)
 - src/renderer/js/workitems-panel.js - Standalone Work Items dock tab (filter, sort, expand, remove)
@@ -53,44 +53,58 @@
 
 ## Agent Communication System
 
-### How it works now (v1.0.25+)
-Agents communicate via shell functions, NOT PTY output scraping.
+### Overview
+The communication loop has two directions:
+1. **Outgoing (agent -> discussion):** Agent runs `discuss "message"` shell command, which POSTs to the Express message server. Message appears in the Discussion panel AND gets relayed to all other agents' PTYs.
+2. **Incoming (discussion -> agent):** Messages are written directly to the agent's PTY with `\r` to auto-submit. Messages from the Discussion panel are prefixed with `[Discussion]` so agents know to reply via `discuss`. Messages typed directly in an agent's shell have no prefix.
 
-When an agent is created, pty-manager.js:
-1. Writes standalone `discuss` and `messages` scripts to a shared temp bin directory (`_ensureShellScripts()`)
-2. Adds the bin directory to the agent's PATH env var
-3. Launches Claude Code — `discuss` and `messages` are available as commands in any shell it spawns
+### Shell scripts (`discuss` and `messages`)
+When an agent is created, `_ensureShellScripts()` writes standalone executable scripts to a shared temp bin directory added to the agent's PATH. They must be standalone executables, NOT sourced bash functions — sourced functions don't survive into Claude Code's Bash tool which spawns new shell instances.
 
-The scripts are standalone executables (not sourced functions — sourced functions don't survive into Claude Code's Bash tool which spawns new shell instances):
 - **`discuss "message"`** — POSTs to the Express message server via node (uses JSON.stringify for safe encoding)
 - **`messages`** — GETs messages from the server, formatted for terminal display
 
-Message text is the source of truth. Targeting is parsed server-side from the message content:
-- `discuss "hello everyone"` — broadcast
-- `discuss "@Bob please check this"` — @mention (Bob called to action, others see as info)
+### Message format
+Message text is the source of truth. Targeting is parsed server-side by `_parseMessageTargets()`:
+- `discuss "hello everyone"` — plain broadcast to all
+- `discuss "@Bob please check this"` — @mention (Bob gets action, others see as info)
 - `discuss "#Bob this is private"` — aside (only Bob receives it)
 - `discuss "Hi @Bob @John please coordinate"` — multiple targets
 
+### Full message flow
+1. Agent runs `discuss "message"` → POSTs `{ from: agentId, to: 'all', content: 'message' }` to `/api/messages`
+2. message-server.js receives it, parses @/# targets via `ptyManager._parseMessageTargets(content)`
+3. Saves to SQLite, pushes to Discussion panel via IPC (`message:new`)
+4. Calls `ptyManager.routeMessage()` which delivers to all other agents' PTYs (never back to sender)
+5. `routeMessage()` uses `_parseMessageTargets()` to determine delivery: plain → all agents, @mention → all (action/info), #aside → only named agents
+6. `_injectMessage()` writes `[Discussion from AgentName] message\r` to the target PTY — the `\r` auto-submits it in Claude Code's TUI
+
+### User → agent messages
+- **From Discussion panel (master-input.js):** Writes directly to agent PTYs via `writeToAgent()`. Broadcasts are prefixed `[Discussion]`, asides prefixed `[Discussion aside]`. Agents are instructed to reply via `discuss` for these.
+- **From agent's shell directly:** User types in the xterm terminal. No prefix. Agent replies normally in shell output.
+
+### Agent instructions (in config file)
+Agents are told:
+- Use `discuss` for all Discussion panel communication
+- `[Discussion]` prefix = reply via `discuss`; no prefix = reply in shell
+- NEVER relay or repeat messages from the Discussion (all agents already receive them)
+- Keep discussion messages short
+- Don't act on messages addressed to other agents
+
 ### Why not PTY scraping
-We tried multiple approaches to detect patterns in PTY output (>>DISCUSS, DISCUSS:, <DISCUSSION> tags). All failed because:
+We tried detecting patterns in PTY output (>>DISCUSS, DISCUSS:, <DISCUSSION> tags). All failed:
 - Claude Code's TUI renders `>>` as Unicode box-drawing characters (`▎ ▎`)
 - XML-style `<DISCUSSION>` tags get swallowed by the LLM as markup — never output literally
 - ANSI escape codes make pattern matching fragile
 - Data arrives in arbitrary chunks, complicating line-based matching
 
-Shell functions bypass all of this — the agent runs a command, the command POSTs directly to the server.
-
-### Message routing (server-side)
-- `_parseMessageTargets()` in pty-manager.js parses @mentions and #asides from message text
-- message-server.js handles the `onDiscussMessage` callback: saves to DB, pushes to Discussion panel via IPC, routes targeted messages to agent PTYs via `routeMessage()`
-- Plain broadcasts go to the Discussion panel only (no PTY injection — that caused "pasted but not entered" issues)
-- Targeted @mentions and #asides ARE routed to the named agents' PTYs
+Shell scripts bypass all of this — the agent runs a command, it POSTs directly to the server.
 
 ### Auto-permissions
-`.claude/settings.local.json` gets patterns added for: `discuss*`, `messages*`, `source*claude-discuss*`, plus the existing curl patterns.
+`.claude/settings.local.json` gets patterns added for: `Bash(discuss*)`, `Bash(messages*)`, plus curl patterns for the server port.
 
 ## Agent Panel Features
-- Cost/token tracking: parses Claude Code's status bar output for `$X.XX` cost and `ctx: N%` context usage, displays in a badge on the agent header
+- Cost/token tracking: parses Claude Code's status bar output for `$X.XX` cost and `ctx: N%` context usage, displays in a badge on the agent header (feedTokenParser in agent-panel.js)
 - Exclude toggle: removes agent from broadcast message delivery
 - Nudge button: sends attention signal to agent
 
@@ -106,6 +120,6 @@ Shell functions bypass all of this — the agent runs a command, the command POS
 
 ## Current Status (April 2026)
 - Version: 1.0.25
-- Latest dist built: 1.0.25 (includes cost/token counters, DevOps integration, shell-based discuss)
-- The `discuss` shell function approach is NEW and needs testing — verify agents actually call it and messages appear in Discussion panel
-- Dead code: `_detectDiscussReply()`, `_stripAnsi()`, `routeMessage()`, `_injectMessage()`, `_parseMessageTargets()` still exist in pty-manager.js — some are still used by message routing, others are leftover from PTY scraping and can be cleaned up
+- Communication loop is working: discuss command → Discussion panel → relay to other agents' PTYs → auto-submit
+- Dead code from PTY scraping attempts still in pty-manager.js: `_detectDiscussReply()`, old `_stripAnsi()` — can be cleaned up
+- Active code in pty-manager.js: `routeMessage()`, `_injectMessage()`, `_parseMessageTargets()`, `_ensureShellScripts()` — all part of the working communication system
