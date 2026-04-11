@@ -60,14 +60,6 @@ async function startMessageServer(sessionManager, ptyManager) {
       windows[0].webContents.send('message:new', enriched);
     }
 
-    // Push to agent PTYs via routing logic
-    ptyManager.routeMessage({
-      from,
-      to,
-      content,
-      fromName: enriched.fromName,
-    });
-
     res.json(saved);
   });
 
@@ -138,13 +130,6 @@ async function startMessageServer(sessionManager, ptyManager) {
       windows[0].webContents.send('message:new', enriched);
     }
 
-    // Route to other agents
-    ptyManager.routeMessage({
-      from,
-      to,
-      content,
-      fromName: enriched.fromName,
-    });
   });
 
   const port = await findFreePort(3377);
