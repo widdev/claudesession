@@ -524,99 +524,70 @@ Then await further instructions from the user. Messages will be delivered to you
 
   /**
    * Detect >>DISCUSS: pattern in agent PTY output and relay to message server.
+   * Simple approach: strip ANSI, scan each chunk for the pattern, fire callback.
    */
   _detectDiscussReply(agentId, data) {
     const entry = this.ptys.get(agentId);
-    if (!entry) {
-      console.log('[DISCUSS] No entry for agent', agentId);
-      return;
-    }
-    if (!this.messageCallback) {
-      console.log('[DISCUSS] No messageCallback registered');
-      return;
-    }
+    if (!entry || !this.messageCallback) return;
 
     const str = typeof data === 'string' ? data : data.toString();
-    entry.discussBuffer += str;
 
-    // Keep buffer manageable
-    if (entry.discussBuffer.length > 8000) {
-      entry.discussBuffer = entry.discussBuffer.slice(-8000);
+    // Strip ANSI codes and clean up
+    const clean = this._stripAnsi(str);
+
+    // Log raw data for debugging (temporary)
+    if (clean.includes('DISCUSS') || clean.includes('discuss')) {
+      console.log(`[DISCUSS-DEBUG] Agent ${entry.name} raw chunk (${str.length} chars):`);
+      console.log(`[DISCUSS-DEBUG] Cleaned: ${JSON.stringify(clean)}`);
     }
 
-    // Strip ANSI codes first
-    const clean = this._stripAnsi(entry.discussBuffer);
+    // Accumulate into line buffer
+    entry.discussBuffer += clean;
 
-    // Split into lines and look for >>DISCUSS on complete lines.
-    // PTY output uses \r\n or \r — normalize to \n for splitting.
-    const normalized = clean.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // Keep buffer manageable
+    if (entry.discussBuffer.length > 4000) {
+      entry.discussBuffer = entry.discussBuffer.slice(-4000);
+    }
+
+    // Normalize line endings and split
+    const normalized = entry.discussBuffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const lines = normalized.split('\n');
 
-    // Only process complete lines (last element may be incomplete)
-    const completeLines = lines.slice(0, -1);
-    // Keep the incomplete tail for next time
-    const tail = lines[lines.length - 1] || '';
+    // Only process complete lines (keep last partial for next time)
+    entry.discussBuffer = lines.pop() || '';
 
-    let matched = false;
-    for (const line of completeLines) {
-      const trimmed = line.trim();
+    for (const line of lines) {
+      // Find >>DISCUSS anywhere in the line
+      const idx = line.indexOf('>>DISCUSS');
+      if (idx === -1) continue;
 
-      // Match: >>DISCUSS: message  or  >>DISCUSS @Target: message
-      // Handle case where >>DISCUSS may have decorative chars before it
-      const m = trimmed.match(/>>DISCUSS\s*(.*)/);
-      if (!m) continue;
+      // Extract everything after >>DISCUSS
+      const after = line.substring(idx + 9).trim(); // 9 = '>>DISCUSS'.length
 
-      console.log(`[DISCUSS] Found pattern in: "${trimmed}"`);
+      // Skip if this looks like an echo command (the command itself, not the output)
+      const before = line.substring(0, idx);
+      if (/echo\s/i.test(before) && /["'`]/.test(before)) continue;
 
-      // Skip lines where >>DISCUSS appears inside a command (shell echo, quotes, etc.)
-      // Only skip if >>DISCUSS is NOT at the start (in case it appears mid-line in a command)
-      const beforeDiscuss = line.substring(0, line.indexOf('>>DISCUSS')).trim();
-      if (beforeDiscuss && /echo\s/i.test(beforeDiscuss)) {
-        console.log(`[DISCUSS] Skipping (echo command before pattern): "${line}"`);
-        continue;
-      }
-      if (beforeDiscuss && /["'`]/.test(beforeDiscuss)) {
-        console.log(`[DISCUSS] Skipping (quotes before pattern): "${line}"`);
-        continue;
-      }
+      console.log(`[DISCUSS] Found in line: "${line.trim()}"`);
+      console.log(`[DISCUSS] After pattern: "${after}"`);
 
-      const afterDiscuss = m[1].trim();
-      if (!afterDiscuss) {
-        console.log(`[DISCUSS] Empty content after pattern`);
-        continue;
-      }
+      if (!after) continue;
 
-      // Parse: optional targets before colon, then message after colon
+      // Parse: ">>DISCUSS: message" or ">>DISCUSS @Target: message"
       let content;
-      const colonIdx = afterDiscuss.indexOf(':');
+      const colonIdx = after.indexOf(':');
       if (colonIdx !== -1) {
-        const beforeColon = afterDiscuss.substring(0, colonIdx).trim();
-        const afterColon = afterDiscuss.substring(colonIdx + 1).trim();
-        if (beforeColon.length === 0) {
-          // ">>DISCUSS: message"
-          content = afterColon;
-        } else {
-          // ">>DISCUSS @Api: message" -> "@Api message"
-          content = beforeColon + ' ' + afterColon;
-        }
+        const beforeColon = after.substring(0, colonIdx).trim();
+        const afterColon = after.substring(colonIdx + 1).trim();
+        content = beforeColon.length === 0 ? afterColon : beforeColon + ' ' + afterColon;
       } else {
-        content = afterDiscuss;
+        content = after;
       }
 
       if (content) {
-        matched = true;
         console.log(`[DISCUSS relay] Agent ${entry.name}: "${content}"`);
-        this.messageCallback({
-          from: agentId,
-          to: 'all',
-          content: content,
-        });
+        this.messageCallback({ from: agentId, to: 'all', content });
       }
-    }
-
-    // Reset buffer — keep only the incomplete tail to avoid re-matching
-    if (matched || completeLines.length > 0) {
-      entry.discussBuffer = tail;
     }
   }
 
