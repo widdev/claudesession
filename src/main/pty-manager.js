@@ -292,6 +292,21 @@ messages
 
 Use \`@\` and \`#\` targeting to reduce noise. Do NOT broadcast when a targeted message will do — this saves tokens for all agents.
 
+## Where to Reply — IMPORTANT
+
+Messages you receive are prefixed to tell you where they came from:
+
+- **\`[Discussion]\`** — came from the Discussion panel. Reply using \`discuss\`. All agents and the user see the Discussion panel, so your reply will be visible to everyone.
+- **\`[Discussion aside]\`** — a private aside from the Discussion panel directed only to you. Reply using \`discuss\` (you may use \`#\` targeting for a private reply).
+- **No prefix** — typed directly into your shell by the user. Reply normally in your shell output (do NOT use \`discuss\`).
+
+## Critical Rules
+
+1. **NEVER relay or repeat messages** you see in the Discussion. All agents already receive all messages — relaying wastes tokens and creates noise.
+2. **NEVER summarize what other agents said.** If you need to reference another agent's message, just mention their name briefly.
+3. **Keep discussion messages short.** Long responses belong in your shell output, not in the Discussion.
+4. **Do NOT act on messages addressed to other agents.** If a message targets @OtherAgent, it is not for you.
+
 ## Tasks
 
 The session manager maintains a **Tasks** panel with work items. Each task has a unique short ID (e.g. \`AB12\`). To check tasks:

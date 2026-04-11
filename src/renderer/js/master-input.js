@@ -124,7 +124,7 @@ function broadcast() {
       }
     }
     if (targetId && messageBody) {
-      sendToAgent(targetId, messageBody);
+      sendToAgent(targetId, `[Discussion aside] ${messageBody}`);
       appendAside(messageBody, targetName);
     } else if (!targetId) {
       // No matching agent — show error inline
@@ -132,9 +132,10 @@ function broadcast() {
     }
   } else {
     // Normal broadcast to all agents (skip paused ones)
+    // Prefix with [Discussion] so agents know to reply via discuss, not in their shell
     for (const [agentId] of agents) {
       if (isAgentPaused(agentId)) continue;
-      sendToAgent(agentId, text);
+      sendToAgent(agentId, `[Discussion] ${text}`);
     }
     appendBroadcast(text);
   }
