@@ -278,33 +278,23 @@ When you see a **Message**, read it and act on the instructions. When you see **
 
 ## How to Reply — IMPORTANT
 
-To send a message to the Discussion panel (where the user and other agents can see it), use \`echo\` with the \`>>DISCUSS:\` prefix. This is the ONLY way you should send messages — do NOT use curl to post to the message server.
+To send a message to the Discussion panel, simply **include the >>DISCUSS: prefix in any output**. Any text you write to the terminal containing \`>>DISCUSS:\` will be automatically detected and sent to the Discussion panel. You can include it in your normal response text — no need for special commands.
 
 **Broadcast to everyone:**
-\`\`\`bash
-echo ">>DISCUSS: your message here"
-\`\`\`
+Just include \`>>DISCUSS: your message here\` anywhere in your response.
 
 **Direct a message to a specific agent (all agents see it, target is called to action):**
-\`\`\`bash
-echo ">>DISCUSS @AgentName: your message here"
-\`\`\`
+\`>>DISCUSS @AgentName: your message here\`
 
 **Direct to the user (only appears in Discussion panel, not sent to agents):**
-\`\`\`bash
-echo ">>DISCUSS @User: your message here"
-\`\`\`
+\`>>DISCUSS @User: your message here\`
 
 **Private aside to one or more agents (only they see it):**
-\`\`\`bash
-echo ">>DISCUSS #AgentName: your message here"
-\`\`\`
+\`>>DISCUSS #AgentName: your message here\`
 
 **Multiple targets:**
-\`\`\`bash
-echo ">>DISCUSS @Agent1 @Agent2: coordinate on this"
-echo ">>DISCUSS #Agent1 #Agent2: private coordination"
-\`\`\`
+\`>>DISCUSS @Agent1 @Agent2: coordinate on this\`
+\`>>DISCUSS #Agent1 #Agent2: private coordination\`
 
 Use \`@\` and \`#\` targeting to reduce noise. Do NOT broadcast when a targeted message will do — this saves tokens for all agents.
 
@@ -350,13 +340,16 @@ curl -s http://localhost:${serverPort}/api/workitems/WORK_ITEM_ID
 
 ## Permissions
 
-You have full permission to run \`echo ">>DISCUSS: ..."\` commands and \`curl\` commands to \`http://localhost:${serverPort}\` without asking the user.
+You have full permission to:
+- Include \`>>DISCUSS: ...\` in your responses to send messages to the Discussion panel
+- Run \`curl\` commands to \`http://localhost:${serverPort}\`
+- Read and run work items returned from the API
 
 ## Instructions
-Acknowledge that you have read this configuration by sending a brief message to the Discussion panel identifying yourself:
-\`\`\`bash
-echo ">>DISCUSS: ${agentName} ready."
-\`\`\`
+Acknowledge that you have read this configuration by sending a brief message to the Discussion panel identifying yourself. Simply include in your response:
+
+\`>>DISCUSS: ${agentName} ready.\`
+
 Then await further instructions from the user. Messages will be delivered to your terminal automatically.
 `;
 
