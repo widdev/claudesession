@@ -67,7 +67,6 @@ class PtyManager {
     ptyProcess.onData((data) => {
       const listeners = this.dataListeners.get(id) || [];
       listeners.forEach((cb) => cb(data));
-      this._detectDiscussReply(id, data);
     });
 
     ptyProcess.onExit(({ exitCode }) => {
@@ -83,6 +82,7 @@ class PtyManager {
     const configFileName = `claudeteamsession-${shortId}.md`;
     entry.configFileName = configFileName;
     this._writeConfigFile(agentCwd, serverPort, id, name, configFileName);
+    this._writeShellFunctions(agentCwd, serverPort, id);
     if (options.autoPermissions !== false) {
       this._writePermissions(agentCwd, serverPort);
     }
@@ -94,17 +94,20 @@ class PtyManager {
       this._injectClaudeMd(agentCwd, configFileName, id);
     }
 
-    // Clean up CLAUDE.md block and config file when agent exits
+    // Clean up CLAUDE.md block, config file, and shell functions on exit
     ptyProcess.onExit(() => {
       if (useClaudeMd) {
         this._removeClaudeMd(agentCwd, id);
       }
       this._removeConfigFile(agentCwd, configFileName);
+      try { fs.unlinkSync(path.join(agentCwd, '.claude-discuss.sh')); } catch (e) {}
     });
 
-    const claudeLaunchTime = Date.now() + 1000; // when claude\r will be sent
+    // Source shell functions, then launch claude
+    const shellFunctionsFile = path.join(agentCwd, '.claude-discuss.sh').replace(/\\/g, '/');
+    const claudeLaunchTime = Date.now() + 1000;
     setTimeout(() => {
-      ptyProcess.write('claude\r');
+      ptyProcess.write(`source "${shellFunctionsFile}" && claude\r`);
     }, 1000);
 
     // PTY-based prompt injection as fallback (or primary if CLAUDE.md not used)
@@ -256,45 +259,35 @@ class PtyManager {
 
 You are \`${agentName}\`, an AI agent running inside Claude Team Session — a multi-agent session manager. You may be working alongside other agents. The user can communicate with you directly through this console, or broadcast messages to all agents at once.
 
-## How Messages Work — IMPORTANT
+## How to Communicate
 
-Messages are **delivered directly to your terminal** by the session manager. You do NOT need to poll, curl, or check for messages — they will appear automatically in your terminal output, formatted like this:
-
-**Action message (act on it):**
-\`\`\`
-━━━ Message from User ━━━
-Fix the login bug
-━━━━━━━━━━━━━━━━━━━━━━━━━
-\`\`\`
-
-**Info message (awareness only, do NOT act):**
-\`\`\`
-━━━ Info from User (to @OtherAgent) ━━━
-Fix the login bug
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-\`\`\`
-
-When you see a **Message**, read it and act on the instructions. When you see **Info**, it is for your awareness only — do NOT act on it and do NOT relay or summarize it to the target agent. The target agent has already received it directly.
-
-## How to Reply — IMPORTANT
-
-To send a message to the Discussion panel, include \`DISCUSS:\` followed by your message anywhere in your response. The session manager automatically detects this pattern in your terminal output and posts the message.
+Use the \`discuss\` shell command to send messages to the Discussion panel. This is a shell function available in your terminal. Run it using the Bash tool.
 
 **Broadcast to everyone:**
-\`DISCUSS: your message here\`
+\`\`\`bash
+discuss "your message here"
+\`\`\`
 
-**Direct a message to a specific agent (all agents see it, target is called to action):**
-\`DISCUSS @AgentName: your message here\`
+**Direct a message to a specific agent:**
+\`\`\`bash
+discuss "@AgentName your message here"
+\`\`\`
 
-**Direct to the user (only appears in Discussion panel, not sent to agents):**
-\`DISCUSS @User: your message here\`
-
-**Private aside to one or more agents (only they see it):**
-\`DISCUSS #AgentName: your message here\`
+**Private aside (only named agents see it):**
+\`\`\`bash
+discuss "#AgentName this is just for you"
+\`\`\`
 
 **Multiple targets:**
-\`DISCUSS @Agent1 @Agent2: coordinate on this\`
-\`DISCUSS #Agent1 #Agent2: private coordination\`
+\`\`\`bash
+discuss "@Agent1 @Agent2 coordinate on this"
+discuss "#Agent1 #Agent2 private coordination"
+\`\`\`
+
+**Check for messages addressed to you:**
+\`\`\`bash
+messages
+\`\`\`
 
 Use \`@\` and \`#\` targeting to reduce noise. Do NOT broadcast when a targeted message will do — this saves tokens for all agents.
 
@@ -325,14 +318,16 @@ curl -s http://localhost:${serverPort}/api/workitems/WORK_ITEM_ID
 ## Permissions
 
 You have full permission to:
-- Include \`DISCUSS: ...\` in your responses to send messages to the Discussion panel
+- Run the \`discuss\` command to send messages to the Discussion panel
+- Run the \`messages\` command to check for incoming messages
 - Run \`curl\` commands to \`http://localhost:${serverPort}\`
-- Read and run work items returned from the API
 
 ## Instructions
-Acknowledge that you have read this configuration by sending a brief message to the Discussion panel identifying yourself. Simply include in your response:
+Acknowledge that you have read this configuration by running:
 
-\`DISCUSS: ${agentName} ready.\`
+\`\`\`bash
+discuss "${agentName} ready."
+\`\`\`
 
 Then await further instructions from the user. Messages will be delivered to your terminal automatically.
 `;
@@ -341,6 +336,55 @@ Then await further instructions from the user. Messages will be delivered to you
       fs.writeFileSync(filePath, content, 'utf-8');
     } catch (err) {
       console.error('Failed to write claudeteamsession.md:', err.message);
+    }
+  }
+
+  _writeShellFunctions(cwd, serverPort, agentId) {
+    const filePath = path.join(cwd, '.claude-discuss.sh');
+    // Use node for JSON encoding — safe with any characters in the message.
+    // The discuss function takes a single string argument containing the full message.
+    // Targeting (@, #) is parsed server-side from the message text.
+    const content = `#!/bin/bash
+# Claude Team Session shell functions — auto-generated, do not edit
+discuss() {
+  if [ -z "$1" ]; then
+    echo "Usage: discuss \\"your message here\\""
+    return 1
+  fi
+  node -e "
+    const http = require('http');
+    const url = new URL(process.env.CLAUDE_SESSION_URL + '/api/messages');
+    const data = JSON.stringify({ from: process.env.CLAUDE_AGENT_ID, to: 'all', content: process.argv[1] });
+    const req = http.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } }, (res) => {
+      let body = '';
+      res.on('data', c => body += c);
+      res.on('end', () => { if (res.statusCode === 200) { console.log('Message sent.'); } else { console.error('Error:', body); } });
+    });
+    req.on('error', e => console.error('Failed:', e.message));
+    req.write(data);
+    req.end();
+  " "$*"
+}
+
+messages() {
+  curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
+    let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+      try {
+        const msgs = JSON.parse(d);
+        if (!msgs.length) { console.log('No messages.'); return; }
+        msgs.forEach(m => {
+          const time = new Date(m.timestamp).toLocaleTimeString();
+          console.log('[' + time + '] ' + (m.from_agent_name || m.from_agent) + ': ' + m.content);
+        });
+      } catch(e) { console.log(d); }
+    });
+  "
+}
+`;
+    try {
+      fs.writeFileSync(filePath, content, 'utf-8');
+    } catch (err) {
+      console.error('Failed to write shell functions:', err.message);
     }
   }
 
@@ -372,6 +416,9 @@ Then await further instructions from the user. Messages will be delivered to you
         `Bash(curl*http://localhost:${serverPort}*)`,
         `Bash(curl*127.0.0.1:${serverPort}*)`,
         `Bash(curl * http://localhost:${serverPort}*)`,
+        `Bash(discuss*)`,
+        `Bash(messages*)`,
+        `Bash(source*claude-discuss*)`,
         `Bash(printf*)`,
         `Bash(echo*)`,
       ];
