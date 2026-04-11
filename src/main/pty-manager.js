@@ -38,6 +38,9 @@ class PtyManager {
     const id = agentId || uuidv4();
     const name = agentName || `agent-${id.substring(0, 6)}`;
 
+    // Write standalone discuss/messages scripts to a shared bin dir on PATH
+    const binDir = this._ensureShellScripts(serverPort);
+
     const shell = this.getShell();
     const env = Object.assign({}, process.env, {
       CLAUDE_SESSION_URL: `http://localhost:${serverPort}`,
@@ -48,6 +51,7 @@ class PtyManager {
       MSYSTEM: 'MINGW64',
       TERM: 'xterm-256color',
       CHERE_INVOKING: '1',
+      PATH: binDir + path.delimiter + (process.env.PATH || ''),
     });
 
     const isGitBash = shell.toLowerCase().includes('git');
@@ -82,7 +86,6 @@ class PtyManager {
     const configFileName = `claudeteamsession-${shortId}.md`;
     entry.configFileName = configFileName;
     this._writeConfigFile(agentCwd, serverPort, id, name, configFileName);
-    this._writeShellFunctions(agentCwd, serverPort, id);
     if (options.autoPermissions !== false) {
       this._writePermissions(agentCwd, serverPort);
     }
@@ -94,20 +97,18 @@ class PtyManager {
       this._injectClaudeMd(agentCwd, configFileName, id);
     }
 
-    // Clean up CLAUDE.md block, config file, and shell functions on exit
+    // Clean up CLAUDE.md block and config file on exit
     ptyProcess.onExit(() => {
       if (useClaudeMd) {
         this._removeClaudeMd(agentCwd, id);
       }
       this._removeConfigFile(agentCwd, configFileName);
-      try { fs.unlinkSync(path.join(agentCwd, '.claude-discuss.sh')); } catch (e) {}
     });
 
-    // Source shell functions, then launch claude
-    const shellFunctionsFile = path.join(agentCwd, '.claude-discuss.sh').replace(/\\/g, '/');
+    // Launch claude (discuss/messages are on PATH as standalone scripts)
     const claudeLaunchTime = Date.now() + 1000;
     setTimeout(() => {
-      ptyProcess.write(`source "${shellFunctionsFile}" && claude\r`);
+      ptyProcess.write('claude\r');
     }, 1000);
 
     // PTY-based prompt injection as fallback (or primary if CLAUDE.md not used)
@@ -339,53 +340,66 @@ Then await further instructions from the user. Messages will be delivered to you
     }
   }
 
-  _writeShellFunctions(cwd, serverPort, agentId) {
-    const filePath = path.join(cwd, '.claude-discuss.sh');
-    // Use node for JSON encoding — safe with any characters in the message.
-    // The discuss function takes a single string argument containing the full message.
-    // Targeting (@, #) is parsed server-side from the message text.
-    const content = `#!/bin/bash
-# Claude Team Session shell functions — auto-generated, do not edit
-discuss() {
-  if [ -z "$1" ]; then
-    echo "Usage: discuss \\"your message here\\""
-    return 1
-  fi
-  node -e "
-    const http = require('http');
-    const url = new URL(process.env.CLAUDE_SESSION_URL + '/api/messages');
-    const data = JSON.stringify({ from: process.env.CLAUDE_AGENT_ID, to: 'all', content: process.argv[1] });
-    const req = http.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } }, (res) => {
-      let body = '';
-      res.on('data', c => body += c);
-      res.on('end', () => { if (res.statusCode === 200) { console.log('Message sent.'); } else { console.error('Error:', body); } });
-    });
-    req.on('error', e => console.error('Failed:', e.message));
-    req.write(data);
-    req.end();
-  " "$*"
-}
-
-messages() {
-  curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
-    let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
-      try {
-        const msgs = JSON.parse(d);
-        if (!msgs.length) { console.log('No messages.'); return; }
-        msgs.forEach(m => {
-          const time = new Date(m.timestamp).toLocaleTimeString();
-          console.log('[' + time + '] ' + (m.from_agent_name || m.from_agent) + ': ' + m.content);
-        });
-      } catch(e) { console.log(d); }
-    });
-  "
-}
-`;
-    try {
-      fs.writeFileSync(filePath, content, 'utf-8');
-    } catch (err) {
-      console.error('Failed to write shell functions:', err.message);
+  /**
+   * Write standalone `discuss` and `messages` scripts to a shared bin directory.
+   * These are real executables on PATH, so they work from any shell Claude Code spawns.
+   * Returns the bin directory path (added to agent's PATH env).
+   */
+  _ensureShellScripts(serverPort) {
+    const binDir = path.join(os.tmpdir(), 'claude-team-session-bin');
+    if (!fs.existsSync(binDir)) {
+      fs.mkdirSync(binDir, { recursive: true });
     }
+
+    // discuss script — uses node for safe JSON encoding
+    const discussPath = path.join(binDir, 'discuss');
+    const discussContent = `#!/bin/bash
+# Claude Team Session — send a message to the Discussion panel
+if [ -z "$1" ]; then
+  echo "Usage: discuss \\"your message here\\""
+  exit 1
+fi
+node -e "
+  const http = require('http');
+  const url = new URL(process.env.CLAUDE_SESSION_URL + '/api/messages');
+  const data = JSON.stringify({ from: process.env.CLAUDE_AGENT_ID, to: 'all', content: process.argv[1] });
+  const req = http.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } }, (res) => {
+    let body = '';
+    res.on('data', c => body += c);
+    res.on('end', () => { if (res.statusCode === 200) { console.log('Message sent.'); } else { console.error('Error:', body); } });
+  });
+  req.on('error', e => console.error('Failed:', e.message));
+  req.write(data);
+  req.end();
+" "$*"
+`;
+
+    // messages script — reads messages from the server
+    const messagesPath = path.join(binDir, 'messages');
+    const messagesContent = `#!/bin/bash
+# Claude Team Session — check for messages
+curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
+  let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+    try {
+      const msgs = JSON.parse(d);
+      if (!msgs.length) { console.log('No messages.'); return; }
+      msgs.forEach(m => {
+        const time = new Date(m.timestamp).toLocaleTimeString();
+        console.log('[' + time + '] ' + (m.from_agent_name || m.from_agent) + ': ' + m.content);
+      });
+    } catch(e) { console.log(d); }
+  });
+"
+`;
+
+    try {
+      fs.writeFileSync(discussPath, discussContent, { mode: 0o755 });
+      fs.writeFileSync(messagesPath, messagesContent, { mode: 0o755 });
+    } catch (err) {
+      console.error('Failed to write shell scripts:', err.message);
+    }
+
+    return binDir;
   }
 
   _writePermissions(cwd, serverPort) {
