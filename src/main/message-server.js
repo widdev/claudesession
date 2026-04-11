@@ -102,7 +102,8 @@ async function startMessageServer(sessionManager, ptyManager) {
     res.json(item);
   });
 
-  // Wire up <DISCUSSION> tag relay — pty-manager detects tags and calls back here.
+  // Wire up DISCUSS: relay — pty-manager detects the pattern and calls back here.
+  // Content may include @/# targets already parsed or plain text.
   ptyManager.onDiscussMessage((msg) => {
     const { from, content } = msg;
 

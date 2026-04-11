@@ -278,23 +278,23 @@ When you see a **Message**, read it and act on the instructions. When you see **
 
 ## How to Reply — IMPORTANT
 
-To send a message to the Discussion panel, wrap it in \`<DISCUSSION>\` tags anywhere in your response. The session manager automatically detects these tags in your terminal output and posts the message.
+To send a message to the Discussion panel, include \`DISCUSS:\` followed by your message anywhere in your response. The session manager automatically detects this pattern in your terminal output and posts the message.
 
 **Broadcast to everyone:**
-\`<DISCUSSION>your message here</DISCUSSION>\`
+\`DISCUSS: your message here\`
 
 **Direct a message to a specific agent (all agents see it, target is called to action):**
-\`<DISCUSSION>@AgentName your message here</DISCUSSION>\`
+\`DISCUSS @AgentName: your message here\`
 
 **Direct to the user (only appears in Discussion panel, not sent to agents):**
-\`<DISCUSSION>@User your message here</DISCUSSION>\`
+\`DISCUSS @User: your message here\`
 
 **Private aside to one or more agents (only they see it):**
-\`<DISCUSSION>#AgentName your message here</DISCUSSION>\`
+\`DISCUSS #AgentName: your message here\`
 
 **Multiple targets:**
-\`<DISCUSSION>@Agent1 @Agent2 coordinate on this</DISCUSSION>\`
-\`<DISCUSSION>#Agent1 #Agent2 private coordination</DISCUSSION>\`
+\`DISCUSS @Agent1 @Agent2: coordinate on this\`
+\`DISCUSS #Agent1 #Agent2: private coordination\`
 
 Use \`@\` and \`#\` targeting to reduce noise. Do NOT broadcast when a targeted message will do — this saves tokens for all agents.
 
@@ -325,14 +325,14 @@ curl -s http://localhost:${serverPort}/api/workitems/WORK_ITEM_ID
 ## Permissions
 
 You have full permission to:
-- Include \`<DISCUSSION>...</DISCUSSION>\` tags in your responses to send messages to the Discussion panel
+- Include \`DISCUSS: ...\` in your responses to send messages to the Discussion panel
 - Run \`curl\` commands to \`http://localhost:${serverPort}\`
 - Read and run work items returned from the API
 
 ## Instructions
 Acknowledge that you have read this configuration by sending a brief message to the Discussion panel identifying yourself. Simply include in your response:
 
-\`<DISCUSSION>${agentName} ready.</DISCUSSION>\`
+\`DISCUSS: ${agentName} ready.\`
 
 Then await further instructions from the user. Messages will be delivered to your terminal automatically.
 `;
@@ -507,8 +507,12 @@ Then await further instructions from the user. Messages will be delivered to you
   }
 
   /**
-   * Detect <DISCUSSION>...</DISCUSSION> tags in agent PTY output and relay to message server.
-   * XML tags survive Claude Code's TUI rendering intact (unlike >> which gets mangled).
+   * Detect DISCUSS pattern in agent PTY output and relay to message server.
+   *
+   * Matches these forms (>> prefix optional, TUI mangles it):
+   *   DISCUSS: message
+   *   DISCUSS @Agent1: message
+   *   DISCUSS #Agent1 #Agent2: message
    */
   _detectDiscussReply(agentId, data) {
     const entry = this.ptys.get(agentId);
@@ -517,31 +521,51 @@ Then await further instructions from the user. Messages will be delivered to you
     const str = typeof data === 'string' ? data : data.toString();
     const clean = this._stripAnsi(str);
 
-    // Accumulate into buffer
+    // Accumulate into line buffer
     entry.discussBuffer += clean;
-
-    // Keep buffer manageable
     if (entry.discussBuffer.length > 8000) {
       entry.discussBuffer = entry.discussBuffer.slice(-8000);
     }
 
-    // Look for complete <DISCUSSION>...</DISCUSSION> tags
-    const tagRegex = /<DISCUSSION>([\s\S]*?)<\/DISCUSSION>/gi;
-    let match;
-    let lastMatchEnd = 0;
+    // Normalize line endings, split into lines
+    const normalized = entry.discussBuffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = normalized.split('\n');
+    entry.discussBuffer = lines.pop() || ''; // keep incomplete tail
 
-    while ((match = tagRegex.exec(entry.discussBuffer)) !== null) {
-      const raw = match[1].trim();
-      if (!raw) continue;
-      lastMatchEnd = match.index + match[0].length;
+    // Pattern: optional targets (@X #X) between DISCUSS and the colon
+    //   DISCUSS: msg              -> broadcast
+    //   DISCUSS @A @B: msg        -> mention A, B
+    //   DISCUSS #A: msg           -> aside to A
+    const discussRegex = /DISCUSS\s+((?:[@#]\w+\s*)+):\s*(.+)/;
+    const discussPlain = /DISCUSS:\s*(.+)/;
 
-      console.log(`[DISCUSS relay] Agent ${entry.name}: "${raw}"`);
-      this.messageCallback({ from: agentId, to: 'all', content: raw });
-    }
+    for (const line of lines) {
+      // Skip echo command lines (the command itself, not the output)
+      if (/echo\s.*["'`].*DISCUSS/i.test(line)) continue;
 
-    // Remove processed tags from buffer, keep unmatched tail
-    if (lastMatchEnd > 0) {
-      entry.discussBuffer = entry.discussBuffer.substring(lastMatchEnd);
+      // Try targeted form first: DISCUSS @Agent: message
+      let m = line.match(discussRegex);
+      if (m) {
+        const targetStr = m[1].trim();
+        const message = m[2].trim();
+        if (message) {
+          // Reconstruct full content with targets so _parseMessageTargets can handle it
+          const content = targetStr + ' ' + message;
+          console.log(`[DISCUSS relay] Agent ${entry.name}: "${content}"`);
+          this.messageCallback({ from: agentId, to: 'all', content });
+        }
+        continue;
+      }
+
+      // Plain form: DISCUSS: message
+      m = line.match(discussPlain);
+      if (m) {
+        const message = m[1].trim();
+        if (message) {
+          console.log(`[DISCUSS relay] Agent ${entry.name}: "${message}"`);
+          this.messageCallback({ from: agentId, to: 'all', content: message });
+        }
+      }
     }
   }
 
