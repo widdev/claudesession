@@ -45,19 +45,34 @@ async function startMessageServer(sessionManager, ptyManager) {
       };
     }
 
+    // Parse @/# targets from the message content
+    const parsed = ptyManager._parseMessageTargets(content);
+    const resolvedTo = parsed.type === 'aside' ? parsed.targets.join(',') : to;
+
     // Resolve agent names for display
     const fromAgent = ptyManager.get(from);
-    const toAgent = ptyManager.get(to);
     const enriched = {
       ...saved,
       fromName: fromAgent ? fromAgent.name : from,
-      toName: to === 'all' ? 'all' : (toAgent ? toAgent.name : to),
+      toName: resolvedTo === 'all' ? 'all' : parsed.targetDisplay || resolvedTo,
+      targetType: parsed.type,
+      targets: parsed.targets,
     };
 
     // Push to renderer (Discussion panel)
     const windows = BrowserWindow.getAllWindows();
     if (windows.length > 0) {
       windows[0].webContents.send('message:new', enriched);
+    }
+
+    // Route targeted messages to agent PTYs (pass original content so targets can be parsed)
+    if (parsed.type !== 'plain') {
+      ptyManager.routeMessage({
+        from,
+        to: resolvedTo,
+        content,
+        fromName: enriched.fromName,
+      });
     }
 
     res.json(saved);

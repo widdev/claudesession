@@ -569,16 +569,16 @@ curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
    * @param {string} targetDisplay - e.g. '@Api @Client' for info headers
    */
   _injectMessage(entry, fromName, rawContent, cleanContent, mode, targetDisplay) {
-    let header;
+    let prefix;
     if (mode === 'info') {
-      header = `━━━ Info from ${fromName} (to ${targetDisplay}) ━━━`;
+      prefix = `[Discussion info from ${fromName} to ${targetDisplay}]`;
+    } else if (targetDisplay) {
+      prefix = `[Discussion from ${fromName}]`;
     } else {
-      header = `━━━ Message from ${fromName} ━━━`;
+      prefix = `[Discussion from ${fromName}]`;
     }
-    const divider = '━'.repeat(Math.min(header.length, 50));
 
-    // Wrap in newlines so it's clearly separated from other terminal output
-    const formatted = `\r\n${header}\r\n${cleanContent}\r\n${divider}\r\n`;
+    const formatted = `\r\n${prefix} ${cleanContent}\r\n`;
     entry.process.write(formatted);
   }
 

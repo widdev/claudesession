@@ -578,6 +578,12 @@ function feedTokenParser(agentId, data) {
   // "ctx: 2% | $0.0789"
   const clean = stripAnsi(entry.tokenBuffer);
 
+  // Debug: log when we see $ or ctx in the output
+  if (clean.includes('$') || clean.includes('ctx')) {
+    const snippet = clean.slice(-200);
+    console.log(`[TOKEN-DEBUG] ${entry.name}: ...${snippet}`);
+  }
+
   // Context percentage
   const ctxMatch = clean.match(/ctx:\s*(\d+)%/g);
   if (ctxMatch) {
