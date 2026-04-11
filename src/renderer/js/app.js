@@ -309,7 +309,7 @@ async function addAgent(agentId, agentName, agentCwd, agentColorId, autoPermissi
   return agent;
 }
 
-function nextAgentName() { return `Agent ${getActiveAgents().size + 1}`; }
+function nextAgentName() { return `Agent${getActiveAgents().size + 1}`; }
 
 const CLAUDE_MD_INFO_TEXT = 'Unchecking this box will switch to using a separate file for the agent and tell it to use that. This should work, but if the agent doesn\'t get the prompt for any reason, you will need to reinitialise the agent using the Agents menu.';
 
@@ -348,7 +348,7 @@ function showNewAgentModal() {
       if (e.target.id === 'modal-claude-md-info') { showClaudeMdInfo(); }
       else if (e.target.id === 'modal-select-dir') { window.electronAPI.openDirectoryDialog().then((d) => { if (d) { pathDisplay.textContent = d; pathDisplay.dataset.path = d; pathDisplay.title = d; pathDisplay.style.color = ''; } }); }
       else if (e.target.id === 'modal-create-btn') {
-        const name = nameInput.value.trim() || nextAgentName(); const dir = pathDisplay.dataset.path;
+        const name = (nameInput.value.trim() || nextAgentName()).replace(/\s+/g, ''); const dir = pathDisplay.dataset.path;
         if (!dir) { pathDisplay.textContent = 'Please select a directory'; pathDisplay.style.color = '#f44747'; return; }
         modal.removeEventListener('click', onModalClick);
         finish({ name, dir, colorId: selectedColorId, autoPermissions: document.getElementById('modal-auto-permissions').checked, updateClaudeMd: claudeMdCheckbox.checked });
