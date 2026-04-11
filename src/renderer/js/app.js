@@ -5,6 +5,8 @@ import { GoldenLayout, ItemType } from 'golden-layout';
 import { createAgentPanel, removeAgentPanel, writeToTerminal, getActiveAgents, fitAll, assignAgentColor, resetColorIndex, getNextDefaultColor, getThemeColors, getColorHex, refreshAgentColors, initTerminalFontSize, AGENT_COLOR_DEFS } from './agent-panel.js';
 import { initMessagePanel, initMasterInput, initMessageFilter, initGlobalMessageListeners, loadMessages } from './message-panel.js';
 import { initTaskPanel, loadTasks } from './task-panel.js';
+import { initDevOpsPanel } from './devops-panel.js';
+import { initWorkItemsPanel, loadWorkItems } from './workitems-panel.js';
 import { initAgentDropdown } from './agent-dropdown.js';
 
 // Agent layout (left panel, internal GL for agent terminals)
@@ -24,6 +26,7 @@ function getDefaultDockConfig() {
       content: [
         { type: 'component', componentType: 'discussion', title: 'Discussion', isClosable: true },
         { type: 'component', componentType: 'tasks', title: 'Tasks', isClosable: true },
+        { type: 'component', componentType: 'workitems', title: 'Work Items', isClosable: true },
       ],
     },
   };
@@ -190,6 +193,67 @@ function initDockLayout() {
         </div>
       </div>`;
     initTaskPanel(el);
+  });
+
+  dockLayout.registerComponentFactoryFunction('devops', function (glContainer) {
+    const el = glContainer.element;
+    el.innerHTML = `
+      <div class="devops-inner">
+        <div class="devops-toolbar">
+          <button class="devops-back-btn" style="display:none">&larr; Back</button>
+          <span class="devops-breadcrumb"></span>
+          <span style="flex:1"></span>
+          <button class="devops-disconnect-btn devops-btn devops-btn-small" style="display:none">Disconnect</button>
+        </div>
+        <div class="devops-content"></div>
+        <div class="panel-statusbar">
+          <select class="devops-zoom-select" title="DevOps zoom">
+            <option value="75">75%</option><option value="85">85%</option>
+            <option value="100" selected>100%</option><option value="115">115%</option>
+            <option value="130">130%</option><option value="150">150%</option>
+          </select>
+        </div>
+      </div>`;
+    initDevOpsPanel(el);
+  });
+
+  dockLayout.registerComponentFactoryFunction('workitems', function (glContainer) {
+    const el = glContainer.element;
+    el.innerHTML = `
+      <div class="workitems-inner">
+        <div class="workitems-toolbar">
+          <span class="workitems-heading">Work Items (0)</span>
+          <span class="workitems-api-info"></span>
+          <span style="flex:1"></span>
+          <button class="workitems-refresh-btn" title="Refresh">&#x21bb; Refresh</button>
+        </div>
+        <div class="workitems-filter-bar">
+          <select class="workitems-filter-type workitems-select"><option value="">All Types</option></select>
+          <select class="workitems-filter-state workitems-select"><option value="">All States</option></select>
+          <input type="date" class="workitems-filter-date-from workitems-input" title="Imported from">
+          <input type="date" class="workitems-filter-date-to workitems-input" title="Imported to">
+          <input type="text" class="workitems-filter-search workitems-input" placeholder="Search...">
+          <button class="workitems-filter-clear" title="Clear filters">Clear</button>
+          <span style="flex:1"></span>
+          <span class="workitems-sort-group">
+            <span class="workitems-sort-label">Sort:</span>
+            <button class="workitems-sort-btn" data-sort="type">Type</button>
+            <button class="workitems-sort-btn" data-sort="state">State</button>
+            <button class="workitems-sort-btn" data-sort="title">Title</button>
+            <button class="workitems-sort-btn active" data-sort="imported_at" data-dir="desc">Date</button>
+            <button class="workitems-sort-btn" data-sort="id">ID</button>
+          </span>
+        </div>
+        <div class="workitems-list"></div>
+        <div class="panel-statusbar">
+          <select class="workitems-zoom-select" title="Work Items zoom">
+            <option value="75">75%</option><option value="85">85%</option>
+            <option value="100" selected>100%</option><option value="115">115%</option>
+            <option value="130">130%</option><option value="150">150%</option>
+          </select>
+        </div>
+      </div>`;
+    initWorkItemsPanel(el);
   });
 }
 
@@ -394,5 +458,7 @@ document.addEventListener('DOMContentLoaded', () => {
   window.electronAPI.onMenuEvent('menu:setLayout', setAgentLayoutMode);
   window.electronAPI.onMenuEvent('menu:showDiscussion', () => addDockPanelIfMissing('discussion', 'Discussion'));
   window.electronAPI.onMenuEvent('menu:showTasks', () => addDockPanelIfMissing('tasks', 'Tasks'));
+  window.electronAPI.onMenuEvent('menu:showDevOps', () => addDockPanelIfMissing('devops', 'Azure DevOps'));
+  window.electronAPI.onMenuEvent('menu:showWorkItems', () => { addDockPanelIfMissing('workitems', 'Work Items'); loadWorkItems(); });
   window.electronAPI.onMenuEvent('menu:clearSettings', async () => { await window.electronAPI.clearAllSettings(); });
 });

@@ -5,12 +5,14 @@ const { PtyManager } = require('./pty-manager');
 const { SessionManager } = require('./session-manager');
 const { startMessageServer, stopMessageServer } = require('./message-server');
 const { registerIpcHandlers } = require('./ipc-handlers');
+const { AzureDevOpsClient } = require('./azure-devops');
 const { buildMenu, setMessagePanelState, setAgentsPanelState, addRecentSession } = require('./menu');
 
 let mainWindow = null;
 let ptyManager = null;
 let sessionManager = null;
 let messageServer = null;
+let azureDevOpsClient = null;
 
 const userDataPath = app.getPath('userData');
 const lastSessionFile = path.join(userDataPath, 'last-session.json');
@@ -54,6 +56,14 @@ function createWindow() {
     }
   });
 
+  // F12 opens DevTools
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12') {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
   mainWindow.on('close', async (e) => {
     if (sessionManager && sessionManager.isOpen()) {
       e.preventDefault();
@@ -69,9 +79,10 @@ function createWindow() {
 async function initialize() {
   ptyManager = new PtyManager();
   sessionManager = new SessionManager();
+  azureDevOpsClient = new AzureDevOpsClient();
   messageServer = await startMessageServer(sessionManager, ptyManager);
 
-  registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer, mainWindow);
+  registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer, mainWindow, azureDevOpsClient);
 
   function rebuildMenu() {
     buildMenu(mainWindow, sessionManager, ptyManager, messageServer);
@@ -113,6 +124,25 @@ async function initialize() {
     }
   } catch (e) {
     console.error('Failed to restore session:', e);
+  }
+
+  // Auto-reconnect Azure DevOps from global settings
+  try {
+    const settingsPath = path.join(userDataPath, 'ClaudeTeamSession', 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      const devopsOrg = settings.devops_org;
+      const devopsAuthMethod = settings.devops_authMethod;
+      const devopsRefresh = settings.devops_refreshToken;
+      const devopsPat = settings.devops_pat;
+      if (devopsOrg && (devopsRefresh || devopsPat)) {
+        azureDevOpsClient.reconnect(devopsOrg, devopsAuthMethod, devopsRefresh, devopsPat).catch((e) => {
+          console.log('Azure DevOps auto-reconnect failed (will need manual re-auth):', e.message);
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Azure DevOps reconnect error:', e);
   }
 }
 

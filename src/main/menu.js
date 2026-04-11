@@ -166,6 +166,8 @@ function buildMenu(mainWindow, sessionManager, ptyManager, messageServer) {
         { type: 'separator' },
         { label: 'Show Discussion', enabled: sessionIsOpen, click: () => mainWindow.webContents.send('menu:showDiscussion') },
         { label: 'Show Tasks', enabled: sessionIsOpen, click: () => mainWindow.webContents.send('menu:showTasks') },
+        { label: 'Show Azure DevOps', enabled: sessionIsOpen, click: () => mainWindow.webContents.send('menu:showDevOps') },
+        { label: 'Show Work Items', enabled: sessionIsOpen, click: () => mainWindow.webContents.send('menu:showWorkItems') },
         { type: 'separator' },
         {
           label: 'Toggle Light/Dark Theme',
@@ -208,6 +210,12 @@ function buildMenu(mainWindow, sessionManager, ptyManager, messageServer) {
     {
       label: 'Help',
       submenu: [
+        {
+          label: 'Toggle Developer Tools',
+          accelerator: 'F12',
+          click: () => mainWindow.webContents.toggleDevTools(),
+        },
+        { type: 'separator' },
         {
           label: `About Claude Team Session`,
           click: () => {

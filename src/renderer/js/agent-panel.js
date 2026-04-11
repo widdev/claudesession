@@ -213,6 +213,8 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
     entry.paused = !entry.paused;
     pauseBtn.textContent = entry.paused ? 'Excluded' : 'Exclude';
     pauseBtn.classList.toggle('active', entry.paused);
+    // Sync filter mode to main process so message routing respects it
+    window.electronAPI.setAgentFilterMode(agentId, entry.paused ? 'exclude' : 'listenAll');
   });
 
   // Nudge button
@@ -248,10 +250,17 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
   cwdSection.appendChild(cwdPath);
   cwdSection.appendChild(cwdBtn);
 
+  // Token/cost badge
+  const tokenBadge = document.createElement('span');
+  tokenBadge.className = 'agent-token-badge';
+  tokenBadge.textContent = '';
+  tokenBadge.title = 'Session cost (parsed from Claude Code output)';
+
   header.appendChild(attentionBadge);
   header.appendChild(nameLabel);
   header.appendChild(pauseBtn);
   header.appendChild(nudgeBtn);
+  header.appendChild(tokenBadge);
   header.appendChild(cwdSection);
 
   // Terminal container
@@ -343,12 +352,16 @@ export function createAgentPanel(container, agentId, agentName, agentCwd, glCont
     header,
     nameLabel,
     attentionBadge,
+    tokenBadge,
     name: agentName,
     colorId,
     glContainer,
     resizeObserver,
     idleTimer: null,
     outputBuffer: '',
+    tokenBuffer: '',
+    lastCost: 0,
+    lastCtx: 0,
     paused: false,
   };
 
@@ -406,6 +419,7 @@ export function writeToTerminal(agentId, data) {
   if (entry) {
     entry.terminal.write(data);
     feedAttentionDetector(agentId, data);
+    feedTokenParser(agentId, data);
   }
 }
 
@@ -535,6 +549,64 @@ function setFocused(agentId) {
   // Clear the buffer so old patterns don't re-trigger when focus leaves
   const entry = activeAgents.get(agentId);
   if (entry) entry.outputBuffer = '';
+}
+
+// ─── Token / Cost Parsing ───────────────────────────────────────────
+//
+// Claude Code's interactive TUI renders a status bar with cost info.
+// The ANSI-stripped PTY output contains dollar amounts like "$0.04".
+// We scan a rolling buffer for these patterns and display the highest
+// value seen (cost only increases within a session).
+//
+
+// Match dollar amounts: $0.04, $1.23, $12.50, etc.
+const COST_REGEX = /\$(\d+\.\d{2,4})/g;
+
+function feedTokenParser(agentId, data) {
+  const entry = activeAgents.get(agentId);
+  if (!entry) return;
+
+  const str = typeof data === 'string' ? data : data.toString();
+  entry.tokenBuffer += str;
+
+  // Keep a rolling window
+  if (entry.tokenBuffer.length > 8000) {
+    entry.tokenBuffer = entry.tokenBuffer.slice(-8000);
+  }
+
+  // Strip ANSI and scan for the status bar pattern:
+  // "ctx: 2% | $0.0789"
+  const clean = stripAnsi(entry.tokenBuffer);
+
+  // Context percentage
+  const ctxMatch = clean.match(/ctx:\s*(\d+)%/g);
+  if (ctxMatch) {
+    const last = ctxMatch[ctxMatch.length - 1];
+    const m = last.match(/ctx:\s*(\d+)%/);
+    if (m) entry.lastCtx = parseInt(m[1], 10);
+  }
+
+  // Cost — take the highest seen (cost only goes up)
+  let highest = entry.lastCost;
+  COST_REGEX.lastIndex = 0;
+  let match;
+  while ((match = COST_REGEX.exec(clean)) !== null) {
+    const val = parseFloat(match[1]);
+    if (val > highest) highest = val;
+  }
+
+  if (highest > entry.lastCost) {
+    entry.lastCost = highest;
+  }
+
+  // Update badge if we have any data
+  if (entry.lastCost > 0 || entry.lastCtx > 0) {
+    const parts = [];
+    if (entry.lastCtx > 0) parts.push(`ctx ${entry.lastCtx}%`);
+    if (entry.lastCost > 0) parts.push(`$${entry.lastCost.toFixed(2)}`);
+    entry.tokenBadge.textContent = parts.join(' | ');
+    entry.tokenBadge.classList.add('visible');
+  }
 }
 
 export function fitAll() {

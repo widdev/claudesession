@@ -70,6 +70,19 @@ class SessionManager {
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
     `);
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS work_items (
+        id INTEGER PRIMARY KEY,
+        title TEXT NOT NULL,
+        type TEXT NOT NULL,
+        state TEXT NOT NULL,
+        assigned_to TEXT,
+        description TEXT,
+        project TEXT NOT NULL,
+        url TEXT,
+        imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
   }
 
   _save() {
@@ -287,6 +300,59 @@ class SessionManager {
     }
     stmt.free();
     return result;
+  }
+
+  // --- Work Items ---
+
+  saveWorkItem(item) {
+    if (!this.db) return null;
+    this.db.run(
+      `INSERT OR REPLACE INTO work_items (id, title, type, state, assigned_to, description, project, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [item.id, item.title, item.type, item.state, item.assignedTo || null, item.description || '', item.project, item.url || '']
+    );
+    this._save();
+    return item;
+  }
+
+  removeWorkItem(id) {
+    if (!this.db) return;
+    this.db.run(`DELETE FROM work_items WHERE id = ?`, [id]);
+    this._save();
+  }
+
+  getWorkItems() {
+    if (!this.db) return [];
+    const stmt = this.db.prepare(`SELECT * FROM work_items ORDER BY imported_at ASC`);
+    const items = [];
+    while (stmt.step()) {
+      items.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return items;
+  }
+
+  getWorkItem(id) {
+    if (!this.db) return null;
+    const stmt = this.db.prepare(`SELECT * FROM work_items WHERE id = ?`);
+    stmt.bind([id]);
+    let result = null;
+    if (stmt.step()) {
+      result = stmt.getAsObject();
+    }
+    stmt.free();
+    return result;
+  }
+
+  updateWorkItemState(id, state) {
+    if (!this.db) return;
+    this.db.run(`UPDATE work_items SET state = ? WHERE id = ?`, [state, id]);
+    this._save();
+  }
+
+  clearWorkItems() {
+    if (!this.db) return;
+    this.db.run(`DELETE FROM work_items`);
+    this._save();
   }
 
   saveMeta(key, value) {

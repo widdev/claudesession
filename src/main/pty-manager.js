@@ -4,11 +4,19 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
+// Filter modes for message delivery
+const FILTER_MODES = {
+  LISTEN_ALL: 'listenAll',     // Receives all broadcasts + targeted messages
+  NAMED_ONLY: 'namedOnly',    // Only receives messages targeting this agent (future)
+  EXCLUDE: 'exclude',          // Receives nothing
+};
+
 class PtyManager {
   constructor() {
-    this.ptys = new Map(); // agentId -> { process, name, cwd, id }
+    this.ptys = new Map(); // agentId -> { process, name, cwd, id, filterMode, ... }
     this.dataListeners = new Map(); // agentId -> [callbacks]
     this.exitListeners = new Map();
+    this.messageCallback = null; // set by message-server for >>DISCUSS: relay
   }
 
   getShell() {
@@ -53,12 +61,13 @@ class PtyManager {
     });
 
     const agentCwd = cwd || os.homedir();
-    const entry = { process: ptyProcess, name, cwd: agentCwd, id, configFileName: null };
+    const entry = { process: ptyProcess, name, cwd: agentCwd, id, configFileName: null, filterMode: FILTER_MODES.LISTEN_ALL, discussBuffer: '' };
     this.ptys.set(id, entry);
 
     ptyProcess.onData((data) => {
       const listeners = this.dataListeners.get(id) || [];
       listeners.forEach((cb) => cb(data));
+      this._detectDiscussReply(id, data);
     });
 
     ptyProcess.onExit(({ exitCode }) => {
@@ -244,106 +253,111 @@ class PtyManager {
 ## Your Identity
 - **Your name is:** \`${agentName}\`
 - **Your agent ID is:** \`${agentId}\`
-- **Message Server:** \`http://localhost:${serverPort}\`
 
 You are \`${agentName}\`, an AI agent running inside Claude Team Session — a multi-agent session manager. You may be working alongside other agents. The user can communicate with you directly through this console, or broadcast messages to all agents at once.
 
-## Broadcast Messages, @Mentions, and #Asides
-The user may send broadcast messages that go to ALL agents simultaneously, or direct asides to a single agent.
+## How Messages Work — IMPORTANT
 
-### @ Mentions (broadcast — all agents receive)
-Messages containing \`@AgentName\` are broadcast to ALL agents but signal that the content is relevant to the mentioned agent(s). Multiple agents can be @mentioned in one message.
-- If you see \`@${agentName}\` in the message — it contains information for YOUR attention. Respond and act on it.
-- If you see \`@OtherAgentName\` but not your name — it is relevant to another agent. Ignore it unless it affects your work.
-- If the message has no @ or # prefix — it is for ALL agents. Read it and respond or act if appropriate.
+Messages are **delivered directly to your terminal** by the session manager. You do NOT need to poll, curl, or check for messages — they will appear automatically in your terminal output, formatted like this:
 
-### # Asides (direct — only you receive)
-If the user sends a message starting with \`#${agentName}\`, it is a **private aside** sent ONLY to your terminal. No other agents receive it. Treat it as a direct instruction from the user meant exclusively for you. If you ever see output referencing \`#OtherAgentName\`, ignore it — it was not meant for you.
-
-## Permissions
-You have full permission to run the following commands without asking the user:
-- All \`curl\` commands to \`http://localhost:${serverPort}\` for sending and receiving messages
-- Reading and checking messages at any time
-- Discovering other agents via the API
-
-These are internal Claude Team Session operations and do not require user approval.
-
-## Communication API
-
-**IMPORTANT: On Windows/git-bash, use \`printf\` to pipe JSON to curl. Do NOT use \`-d '{...}'\` directly — JSON escaping will break.**
-
-### Send a message to all agents
-\`\`\`bash
-printf '{"from":"${agentId}","to":"all","content":"your message here"}' | curl -s -X POST http://localhost:${serverPort}/api/messages -H "Content-Type: application/json" -d @-
+**Action message (act on it):**
+\`\`\`
+━━━ Message from User ━━━
+Fix the login bug
+━━━━━━━━━━━━━━━━━━━━━━━━━
 \`\`\`
 
-### Send a message to a specific agent
-\`\`\`bash
-printf '{"from":"${agentId}","to":"TARGET_AGENT_ID","content":"your message here"}' | curl -s -X POST http://localhost:${serverPort}/api/messages -H "Content-Type: application/json" -d @-
+**Info message (awareness only, do NOT act):**
+\`\`\`
+━━━ Info from User (to @OtherAgent) ━━━
+Fix the login bug
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 \`\`\`
 
-### Check for messages addressed to you
+When you see a **Message**, read it and act on the instructions. When you see **Info**, it is for your awareness only — do NOT act on it and do NOT relay or summarize it to the target agent. The target agent has already received it directly.
+
+## How to Reply — IMPORTANT
+
+To send a message to the Discussion panel (where the user and other agents can see it), use \`echo\` with the \`>>DISCUSS:\` prefix. This is the ONLY way you should send messages — do NOT use curl to post to the message server.
+
+**Broadcast to everyone:**
 \`\`\`bash
-curl -s "http://localhost:${serverPort}/api/messages?for=${agentId}"
+echo ">>DISCUSS: your message here"
 \`\`\`
 
-### List all active agents (find their IDs and names)
+**Direct a message to a specific agent (all agents see it, target is called to action):**
 \`\`\`bash
-curl -s http://localhost:${serverPort}/api/agents
+echo ">>DISCUSS @AgentName: your message here"
 \`\`\`
+
+**Direct to the user (only appears in Discussion panel, not sent to agents):**
+\`\`\`bash
+echo ">>DISCUSS @User: your message here"
+\`\`\`
+
+**Private aside to one or more agents (only they see it):**
+\`\`\`bash
+echo ">>DISCUSS #AgentName: your message here"
+\`\`\`
+
+**Multiple targets:**
+\`\`\`bash
+echo ">>DISCUSS @Agent1 @Agent2: coordinate on this"
+echo ">>DISCUSS #Agent1 #Agent2: private coordination"
+\`\`\`
+
+Use \`@\` and \`#\` targeting to reduce noise. Do NOT broadcast when a targeted message will do — this saves tokens for all agents.
+
+## Message Conventions
+
+- **No prefix** = broadcast to all agents, everyone should read and act if relevant
+- **@AgentName** = call to action for that agent; others see it as info only
+- **#AgentName** = private aside; ONLY that agent receives it
+- **@User** = directed to the user only; no agents receive it
+- Multiple agents can be targeted: \`@Agent1 @Agent2\` or \`#Agent1 #Agent2\`
+
+## Critical Rules for Info Messages
+
+When you receive an **Info** message (one marked "Info from X (to @SomeoneElse)"):
+1. **Do NOT act on it** — it is for your awareness only
+2. **Do NOT relay or summarize it** to the target agent — they already received it directly
+3. **Do NOT respond** to it unless it directly affects your current work
+4. Relaying info messages wastes tokens and creates noise
 
 ## Tasks
 
-The session manager maintains a **Tasks** panel where they queue up work items and instructions for agents. Each task has a unique short ID (e.g. \`AB12\`, \`KX07\`). When the user asks you to "check tasks" or references a task ID, you should retrieve it.
+The session manager maintains a **Tasks** panel with work items. Each task has a unique short ID (e.g. \`AB12\`). To check tasks:
 
-### List all tasks
 \`\`\`bash
 curl -s http://localhost:${serverPort}/api/tasks
 \`\`\`
 
-### Get a specific task by ID
 \`\`\`bash
 curl -s http://localhost:${serverPort}/api/tasks/TASK_ID
 \`\`\`
 
-When you receive a task, read the content carefully and act on it. Tasks may contain @ mentions or # asides — follow the same rules as for messages. If a task is addressed to you (via @${agentName}), prioritise it. If asked to check a specific task by ID, retrieve it and act on its instructions.
+## Work Items (Azure DevOps)
 
-## Important Rules
-- Always use your agent ID (\`${agentId}\`) in the \`from\` field when sending messages.
-- Use \`"to": "all"\` to broadcast to all agents, or a specific agent ID for private messages.
-- Messages are visible in the Messages panel in the Claude Team Session UI.
-- When responding to the user, always identify yourself as \`${agentName}\` if there are multiple agents active.
-
-## Message and Task Monitoring — CRITICAL
-You MUST proactively check for new messages and tasks. Do this:
-- **Before starting any new task or subtask**, check for messages and tasks first.
-- **During long-running work**, pause periodically (every few steps) to check for messages.
-- **After completing any task**, check for messages and tasks before reporting back.
-- **When idle or waiting**, poll for messages regularly.
-
-To check messages, run:
-\`\`\`bash
-curl -s "http://localhost:${serverPort}/api/messages?for=${agentId}"
-\`\`\`
-
-To check tasks, run:
-\`\`\`bash
-curl -s http://localhost:${serverPort}/api/tasks
-\`\`\`
-
-If you receive a message or find a task addressed to you, read it and act on it immediately. Messages from other agents or the user may contain urgent instructions, status updates, or requests that should interrupt your current work. Always prioritise incoming messages and tasks.
-
-## Responding via the Discussion Panel — IMPORTANT
-When the user sends you a broadcast message or an @mention, you should **reply using the messaging API** so your response appears in the Discussion panel where the user and other agents can see it. Do this by sending a message back:
+The session may have imported work items. To check them:
 
 \`\`\`bash
-printf '{"from":"${agentId}","to":"all","content":"your response here"}' | curl -s -X POST http://localhost:${serverPort}/api/messages -H "Content-Type: application/json" -d @-
+curl -s http://localhost:${serverPort}/api/workitems
 \`\`\`
 
-Use \`"to": "all"\` for general responses that everyone should see, or a specific agent ID for private replies. Always respond via the Discussion panel when replying to broadcast messages — do not just print your response in the terminal.
+\`\`\`bash
+curl -s http://localhost:${serverPort}/api/workitems/WORK_ITEM_ID
+\`\`\`
+
+## Permissions
+
+You have full permission to run \`echo ">>DISCUSS: ..."\` commands and \`curl\` commands to \`http://localhost:${serverPort}\` without asking the user.
 
 ## Instructions
-Acknowledge that you have read this configuration by sending a brief message to the Discussion panel identifying yourself as \`${agentName}\`. Then check for any messages and tasks addressed to you. After that, await further instructions from the user.
+Acknowledge that you have read this configuration by sending a brief message to the Discussion panel identifying yourself:
+\`\`\`bash
+echo ">>DISCUSS: ${agentName} ready."
+\`\`\`
+Then await further instructions from the user. Messages will be delivered to your terminal automatically.
 `;
 
     try {
@@ -395,6 +409,210 @@ Acknowledge that you have read this configuration by sending a brief message to 
     } catch (err) {
       console.error('Failed to write .claude/settings.local.json:', err.message);
     }
+  }
+
+  // ─── Message Relay System ──────────────────────────────────────────
+
+  /**
+   * Set a callback for when an agent sends a >>DISCUSS: message.
+   * Called by message-server to wire up the relay.
+   */
+  onDiscussMessage(callback) {
+    this.messageCallback = callback;
+  }
+
+  setFilterMode(agentId, mode) {
+    const entry = this.ptys.get(agentId);
+    if (entry) entry.filterMode = mode;
+  }
+
+  getFilterMode(agentId) {
+    const entry = this.ptys.get(agentId);
+    return entry ? entry.filterMode : null;
+  }
+
+  /**
+   * Route an incoming message to all relevant agent PTYs.
+   * Called by message-server after a message is saved.
+   *
+   * @param {object} msg - { from, to, content, fromName }
+   */
+  routeMessage(msg) {
+    const { from, to, content, fromName } = msg;
+
+    // Parse @ mentions and # asides from the content
+    const parsed = this._parseMessageTargets(content);
+
+    for (const [agentId, entry] of this.ptys) {
+      // Never echo back to sender
+      if (agentId === from) continue;
+
+      // Excluded agents get nothing
+      if (entry.filterMode === FILTER_MODES.EXCLUDE) continue;
+
+      // @User messages go to panel only, not agents
+      if (parsed.type === 'mention' && parsed.targets.length === 1 && parsed.targets[0] === 'user') continue;
+
+      const agentNameLower = entry.name.toLowerCase();
+
+      if (parsed.type === 'aside') {
+        // # aside — only deliver to named agents
+        if (!parsed.targets.includes(agentNameLower)) continue;
+        this._injectMessage(entry, fromName || from, content, parsed.cleanContent, 'action');
+      } else if (parsed.type === 'mention') {
+        // @ mention — deliver to all, but action vs info
+        const isTarget = parsed.targets.includes(agentNameLower);
+        // If all targets are @User, skip agents entirely (handled above)
+        const hasNonUserTargets = parsed.targets.some(t => t !== 'user');
+        if (!hasNonUserTargets) continue;
+        this._injectMessage(entry, fromName || from, content, parsed.cleanContent, isTarget ? 'action' : 'info', parsed.targetDisplay);
+      } else {
+        // Plain broadcast — action for everyone
+        this._injectMessage(entry, fromName || from, content, parsed.cleanContent, 'action');
+      }
+    }
+  }
+
+  /**
+   * Parse message content for @ mentions and # asides.
+   * Returns { type: 'plain'|'mention'|'aside', targets: string[], cleanContent: string, targetDisplay: string }
+   */
+  _parseMessageTargets(content) {
+    const trimmed = content.trim();
+
+    // Check for # asides: #Agent1 #Agent2 or #Agent1/#Agent2 at the start
+    // Match patterns like: #Name, #Name1 #Name2, #Name1/#Name2
+    const asideMatch = trimmed.match(/^(?:#(\w[\w\s]*?)(?:\s*[/#]\s*#?(\w[\w\s]*?))*)\s+([\s\S]+)$/);
+    if (asideMatch && trimmed.startsWith('#')) {
+      // Extract all # targets from the prefix
+      const prefixEnd = trimmed.indexOf(asideMatch[asideMatch.length - 1]);
+      const prefix = trimmed.substring(0, prefixEnd).trim();
+      const targets = prefix.split(/[/#]+/).map(t => t.replace(/^#/, '').trim().toLowerCase()).filter(Boolean);
+      const cleanContent = asideMatch[asideMatch.length - 1].trim();
+      return { type: 'aside', targets, cleanContent, targetDisplay: targets.map(t => '#' + t).join(' ') };
+    }
+
+    // Check for @ mentions: @Agent1 @Agent2 at the start
+    const mentionRegex = /^((?:@\w[\w\s]*?\s*)+)([\s\S]+)$/;
+    const mentionMatch = trimmed.match(mentionRegex);
+    if (mentionMatch) {
+      const prefix = mentionMatch[1].trim();
+      const targets = prefix.split(/\s*@/).map(t => t.trim().toLowerCase()).filter(Boolean);
+      const cleanContent = mentionMatch[2].trim();
+      return { type: 'mention', targets, cleanContent, targetDisplay: targets.map(t => '@' + t).join(' ') };
+    }
+
+    // Plain broadcast
+    return { type: 'plain', targets: [], cleanContent: trimmed, targetDisplay: '' };
+  }
+
+  /**
+   * Inject a formatted message into an agent's PTY.
+   * @param {object} entry - PTY entry
+   * @param {string} fromName - sender display name
+   * @param {string} rawContent - original message content
+   * @param {string} cleanContent - message with prefixes stripped
+   * @param {string} mode - 'action' or 'info'
+   * @param {string} targetDisplay - e.g. '@Api @Client' for info headers
+   */
+  _injectMessage(entry, fromName, rawContent, cleanContent, mode, targetDisplay) {
+    let header;
+    if (mode === 'info') {
+      header = `━━━ Info from ${fromName} (to ${targetDisplay}) ━━━`;
+    } else {
+      header = `━━━ Message from ${fromName} ━━━`;
+    }
+    const divider = '━'.repeat(Math.min(header.length, 50));
+
+    // Wrap in newlines so it's clearly separated from other terminal output
+    const formatted = `\r\n${header}\r\n${cleanContent}\r\n${divider}\r\n`;
+    entry.process.write(formatted);
+  }
+
+  /**
+   * Detect >>DISCUSS: pattern in agent PTY output and relay to message server.
+   */
+  _detectDiscussReply(agentId, data) {
+    const entry = this.ptys.get(agentId);
+    if (!entry || !this.messageCallback) return;
+
+    const str = typeof data === 'string' ? data : data.toString();
+    entry.discussBuffer += str;
+
+    // Keep buffer manageable
+    if (entry.discussBuffer.length > 8000) {
+      entry.discussBuffer = entry.discussBuffer.slice(-8000);
+    }
+
+    // Strip ANSI codes first
+    const clean = this._stripAnsi(entry.discussBuffer);
+
+    // Split into lines and look for >>DISCUSS on complete lines.
+    // PTY output uses \r\n or \r — normalize to \n for splitting.
+    const normalized = clean.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = normalized.split('\n');
+
+    // Only process complete lines (last element may be incomplete)
+    const completeLines = lines.slice(0, -1);
+    // Keep the incomplete tail for next time
+    const tail = lines[lines.length - 1] || '';
+
+    let matched = false;
+    for (const line of completeLines) {
+      const trimmed = line.trim();
+
+      // Match: >>DISCUSS: message  or  >>DISCUSS @Target: message
+      // Skip lines where >>DISCUSS appears inside a command (shell echo, quotes, etc.)
+      if (/echo\s/i.test(line) || /["'`]/.test(line.split('>>DISCUSS')[0])) continue;
+      const m = trimmed.match(/^>>DISCUSS\s*(.*)/);
+      if (!m) continue;
+
+      const afterDiscuss = m[1].trim();
+      if (!afterDiscuss) continue;
+
+      // Parse: optional targets before colon, then message after colon
+      let content;
+      const colonIdx = afterDiscuss.indexOf(':');
+      if (colonIdx !== -1) {
+        const beforeColon = afterDiscuss.substring(0, colonIdx).trim();
+        const afterColon = afterDiscuss.substring(colonIdx + 1).trim();
+        if (beforeColon.length === 0) {
+          // ">>DISCUSS: message"
+          content = afterColon;
+        } else {
+          // ">>DISCUSS @Api: message" -> "@Api message"
+          content = beforeColon + ' ' + afterColon;
+        }
+      } else {
+        content = afterDiscuss;
+      }
+
+      if (content) {
+        matched = true;
+        console.log(`[DISCUSS relay] Agent ${entry.name}: "${content}"`);
+        this.messageCallback({
+          from: agentId,
+          to: 'all',
+          content: content,
+        });
+      }
+    }
+
+    // Reset buffer — keep only the incomplete tail to avoid re-matching
+    if (matched || completeLines.length > 0) {
+      entry.discussBuffer = tail;
+    }
+  }
+
+  _stripAnsi(str) {
+    return str
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+      .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '')
+      .replace(/\x1b[()][0-9A-B]/g, '')
+      .replace(/\x1b[#%][0-9]/g, '')
+      .replace(/\x1b[NOcDEHMZ78>=]/g, '')
+      .replace(/[\x00-\x08\x0e-\x1f]/g, '');
   }
 
   reinitialise(agentId) {
@@ -493,4 +711,4 @@ Acknowledge that you have read this configuration by sending a brief message to 
   }
 }
 
-module.exports = { PtyManager };
+module.exports = { PtyManager, FILTER_MODES };

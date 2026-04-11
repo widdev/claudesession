@@ -1,6 +1,6 @@
 {
   "name": "claude-team-session",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "description": "Multi-agent Claude Code team session with inter-agent messaging",
   "author": "Claude Team Session",
   "main": "src/main/main.js",

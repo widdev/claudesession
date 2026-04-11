@@ -35,7 +35,7 @@ function isTemporarySession(sessionPath) {
   return sessionPath.startsWith(getSessionsDir()) && pathMod.basename(sessionPath).startsWith('temp');
 }
 
-function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer, mainWindow) {
+function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer, mainWindow, azureDevOpsClient) {
   // --- PTY ---
   ipcMain.handle('pty:create', (event, { agentId, name, cwd, autoPermissions, updateClaudeMd }) => {
     const agent = ptyManager.create(agentId, name, cwd, messageServer.port, { autoPermissions, updateClaudeMd });
@@ -82,6 +82,14 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
         sessionManager.saveAgent(agent);
       }
     }
+  });
+
+  ipcMain.handle('pty:setFilterMode', (event, agentId, mode) => {
+    ptyManager.setFilterMode(agentId, mode);
+  });
+
+  ipcMain.handle('pty:getFilterMode', (event, agentId) => {
+    return ptyManager.getFilterMode(agentId);
   });
 
   ipcMain.handle('pty:changeCwd', async (event, agentId) => {
@@ -486,6 +494,114 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
 
   ipcMain.handle('settings:clearAll', () => {
     writeSettings({});
+  });
+
+  // --- Shell ---
+  ipcMain.handle('shell:openExternal', async (event, url) => {
+    const { shell } = require('electron');
+    // Only allow http/https URLs
+    if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+      await shell.openExternal(url);
+    }
+  });
+
+  // --- Azure DevOps ---
+  ipcMain.handle('devops:connect', async (event, { org }) => {
+    await azureDevOpsClient.authenticate(org);
+    const settings = readSettings();
+    settings.devops_org = org;
+    settings.devops_authMethod = 'oauth';
+    settings.devops_refreshToken = azureDevOpsClient.refreshToken;
+    settings.devops_pat = '';
+    writeSettings(settings);
+    return { success: true };
+  });
+
+  ipcMain.handle('devops:connectPat', async (event, { org, pat }) => {
+    await azureDevOpsClient.authenticateWithPat(org, pat);
+    const settings = readSettings();
+    settings.devops_org = org;
+    settings.devops_authMethod = 'pat';
+    settings.devops_pat = pat;
+    settings.devops_refreshToken = '';
+    writeSettings(settings);
+    return { success: true };
+  });
+
+  ipcMain.handle('devops:disconnect', () => {
+    azureDevOpsClient.disconnect();
+    const settings = readSettings();
+    settings.devops_org = '';
+    settings.devops_authMethod = '';
+    settings.devops_refreshToken = '';
+    settings.devops_pat = '';
+    writeSettings(settings);
+  });
+
+  ipcMain.handle('devops:isConnected', () => {
+    return azureDevOpsClient.isConnected();
+  });
+
+  ipcMain.handle('devops:getCredentials', () => {
+    return azureDevOpsClient.getCredentials();
+  });
+
+  ipcMain.handle('devops:getProjects', async () => {
+    return azureDevOpsClient.getProjects();
+  });
+
+  ipcMain.handle('devops:getTeams', async (event, project) => {
+    return azureDevOpsClient.getTeams(project);
+  });
+
+  ipcMain.handle('devops:getIterations', async (event, { project, team }) => {
+    return azureDevOpsClient.getIterations(project, team);
+  });
+
+  ipcMain.handle('devops:getCurrentIteration', async (event, { project, team }) => {
+    return azureDevOpsClient.getCurrentIteration(project, team);
+  });
+
+  ipcMain.handle('devops:getSprintItems', async (event, { project, iterationPath }) => {
+    const refs = await azureDevOpsClient.queryIterationWorkItems(project, iterationPath);
+    if (refs.length === 0) return [];
+    const ids = refs.map((r) => r.id);
+    return azureDevOpsClient.getWorkItemDetails(ids);
+  });
+
+  ipcMain.handle('devops:createWorkItem', async (event, { project, type, fields }) => {
+    return azureDevOpsClient.createWorkItem(project, type, fields);
+  });
+
+  ipcMain.handle('devops:updateState', async (event, { id, state }) => {
+    await azureDevOpsClient.updateWorkItemState(id, state);
+    return { success: true };
+  });
+
+  ipcMain.handle('devops:addComment', async (event, { project, id, comment }) => {
+    await azureDevOpsClient.addWorkItemComment(project, id, comment);
+    return { success: true };
+  });
+
+  // --- Work Items (local DB) ---
+  ipcMain.handle('workitems:import', (event, item) => {
+    return sessionManager.saveWorkItem(item);
+  });
+
+  ipcMain.handle('workitems:remove', (event, id) => {
+    sessionManager.removeWorkItem(id);
+  });
+
+  ipcMain.handle('workitems:getAll', () => {
+    return sessionManager.getWorkItems();
+  });
+
+  ipcMain.handle('workitems:get', (event, id) => {
+    return sessionManager.getWorkItem(id);
+  });
+
+  ipcMain.handle('workitems:updateState', (event, { id, state }) => {
+    sessionManager.updateWorkItemState(id, state);
   });
 
   // --- Layout ---

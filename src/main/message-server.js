@@ -45,19 +45,28 @@ async function startMessageServer(sessionManager, ptyManager) {
       };
     }
 
-    // Push to renderer
+    // Resolve agent names for display
+    const fromAgent = ptyManager.get(from);
+    const toAgent = ptyManager.get(to);
+    const enriched = {
+      ...saved,
+      fromName: fromAgent ? fromAgent.name : from,
+      toName: to === 'all' ? 'all' : (toAgent ? toAgent.name : to),
+    };
+
+    // Push to renderer (Discussion panel)
     const windows = BrowserWindow.getAllWindows();
     if (windows.length > 0) {
-      // Resolve agent names for display
-      const fromAgent = ptyManager.get(from);
-      const toAgent = ptyManager.get(to);
-      const enriched = {
-        ...saved,
-        fromName: fromAgent ? fromAgent.name : from,
-        toName: to === 'all' ? 'all' : (toAgent ? toAgent.name : to),
-      };
       windows[0].webContents.send('message:new', enriched);
     }
+
+    // Push to agent PTYs via routing logic
+    ptyManager.routeMessage({
+      from,
+      to,
+      content,
+      fromName: enriched.fromName,
+    });
 
     res.json(saved);
   });
@@ -86,6 +95,56 @@ async function startMessageServer(sessionManager, ptyManager) {
     const task = sessionManager.getTask(req.params.id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
     res.json(task);
+  });
+
+  // GET /api/workitems - list imported work items
+  app.get('/api/workitems', (req, res) => {
+    const items = sessionManager.getWorkItems();
+    res.json(items);
+  });
+
+  // GET /api/workitems/:id - get a specific work item
+  app.get('/api/workitems/:id', (req, res) => {
+    const item = sessionManager.getWorkItem(parseInt(req.params.id, 10));
+    if (!item) return res.status(404).json({ error: 'Work item not found' });
+    res.json(item);
+  });
+
+  // Wire up >>DISCUSS: relay — when agents echo >>DISCUSS: text,
+  // pty-manager detects it and calls back here to post the message.
+  ptyManager.onDiscussMessage((msg) => {
+    const { from, to, content } = msg;
+    let saved = sessionManager.saveMessage({ from, to, content });
+    if (!saved) {
+      saved = {
+        id: Date.now(),
+        from_agent: from,
+        to_agent: to,
+        content,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    const fromAgent = ptyManager.get(from);
+    const enriched = {
+      ...saved,
+      fromName: fromAgent ? fromAgent.name : from,
+      toName: 'all',
+    };
+
+    // Push to Discussion panel
+    const windows = BrowserWindow.getAllWindows();
+    if (windows.length > 0) {
+      windows[0].webContents.send('message:new', enriched);
+    }
+
+    // Route to other agents
+    ptyManager.routeMessage({
+      from,
+      to,
+      content,
+      fromName: enriched.fromName,
+    });
   });
 
   const port = await findFreePort(3377);
