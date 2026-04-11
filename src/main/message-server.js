@@ -65,15 +65,13 @@ async function startMessageServer(sessionManager, ptyManager) {
       windows[0].webContents.send('message:new', enriched);
     }
 
-    // Route targeted messages to agent PTYs (pass original content so targets can be parsed)
-    if (parsed.type !== 'plain') {
-      ptyManager.routeMessage({
-        from,
-        to: resolvedTo,
-        content,
-        fromName: enriched.fromName,
-      });
-    }
+    // Route to agent PTYs (all messages, not just targeted — agents need the feedback loop)
+    ptyManager.routeMessage({
+      from,
+      to: resolvedTo,
+      content,
+      fromName: enriched.fromName,
+    });
 
     res.json(saved);
   });
