@@ -578,8 +578,8 @@ curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
       prefix = `[Discussion from ${fromName}]`;
     }
 
-    const formatted = `\r\n${prefix} ${cleanContent}\r\n`;
-    entry.process.write(formatted);
+    const message = `${prefix} ${cleanContent}`;
+    entry.process.write(message + '\r');
   }
 
   /**
