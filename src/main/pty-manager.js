@@ -16,7 +16,7 @@ class PtyManager {
     this.ptys = new Map(); // agentId -> { process, name, cwd, id, filterMode, ... }
     this.dataListeners = new Map(); // agentId -> [callbacks]
     this.exitListeners = new Map();
-    this.messageCallback = null; // set by message-server for >>DISCUSS: relay
+    this.messageCallback = null; // set by message-server for DISCUSS: relay
   }
 
   getShell() {
@@ -278,23 +278,23 @@ When you see a **Message**, read it and act on the instructions. When you see **
 
 ## How to Reply — IMPORTANT
 
-To send a message to the Discussion panel, simply **include the >>DISCUSS: prefix in any output**. Any text you write to the terminal containing \`>>DISCUSS:\` will be automatically detected and sent to the Discussion panel. You can include it in your normal response text — no need for special commands.
+To send a message to the Discussion panel, simply **include the DISCUSS: prefix in any output**. Any text you write to the terminal containing \`DISCUSS:\` will be automatically detected and sent to the Discussion panel. You can include it in your normal response text — no need for special commands.
 
 **Broadcast to everyone:**
-Just include \`>>DISCUSS: your message here\` anywhere in your response.
+Just include \`DISCUSS: your message here\` anywhere in your response.
 
 **Direct a message to a specific agent (all agents see it, target is called to action):**
-\`>>DISCUSS @AgentName: your message here\`
+\`DISCUSS @AgentName: your message here\`
 
 **Direct to the user (only appears in Discussion panel, not sent to agents):**
-\`>>DISCUSS @User: your message here\`
+\`DISCUSS @User: your message here\`
 
 **Private aside to one or more agents (only they see it):**
-\`>>DISCUSS #AgentName: your message here\`
+\`DISCUSS #AgentName: your message here\`
 
 **Multiple targets:**
-\`>>DISCUSS @Agent1 @Agent2: coordinate on this\`
-\`>>DISCUSS #Agent1 #Agent2: private coordination\`
+\`DISCUSS @Agent1 @Agent2: coordinate on this\`
+\`DISCUSS #Agent1 #Agent2: private coordination\`
 
 Use \`@\` and \`#\` targeting to reduce noise. Do NOT broadcast when a targeted message will do — this saves tokens for all agents.
 
@@ -341,14 +341,14 @@ curl -s http://localhost:${serverPort}/api/workitems/WORK_ITEM_ID
 ## Permissions
 
 You have full permission to:
-- Include \`>>DISCUSS: ...\` in your responses to send messages to the Discussion panel
+- Include \`DISCUSS: ...\` in your responses to send messages to the Discussion panel
 - Run \`curl\` commands to \`http://localhost:${serverPort}\`
 - Read and run work items returned from the API
 
 ## Instructions
 Acknowledge that you have read this configuration by sending a brief message to the Discussion panel identifying yourself. Simply include in your response:
 
-\`>>DISCUSS: ${agentName} ready.\`
+\`DISCUSS: ${agentName} ready.\`
 
 Then await further instructions from the user. Messages will be delivered to your terminal automatically.
 `;
@@ -407,7 +407,7 @@ Then await further instructions from the user. Messages will be delivered to you
   // ─── Message Relay System ──────────────────────────────────────────
 
   /**
-   * Set a callback for when an agent sends a >>DISCUSS: message.
+   * Set a callback for when an agent sends a DISCUSS: message.
    * Called by message-server to wire up the relay.
    */
   onDiscussMessage(callback) {
@@ -523,23 +523,16 @@ Then await further instructions from the user. Messages will be delivered to you
   }
 
   /**
-   * Detect >>DISCUSS: pattern in agent PTY output and relay to message server.
-   * Simple approach: strip ANSI, scan each chunk for the pattern, fire callback.
+   * Detect DISCUSS: pattern in agent PTY output and relay to message server.
+   * Claude Code's TUI renders >> as Unicode box-drawing chars (▎ ▎), so we
+   * match on "DISCUSS" alone — the >> prefix is unreliable after ANSI stripping.
    */
   _detectDiscussReply(agentId, data) {
     const entry = this.ptys.get(agentId);
     if (!entry || !this.messageCallback) return;
 
     const str = typeof data === 'string' ? data : data.toString();
-
-    // Strip ANSI codes and clean up
     const clean = this._stripAnsi(str);
-
-    // Log raw data for debugging (temporary)
-    if (clean.includes('DISCUSS') || clean.includes('discuss')) {
-      console.log(`[DISCUSS-DEBUG] Agent ${entry.name} raw chunk (${str.length} chars):`);
-      console.log(`[DISCUSS-DEBUG] Cleaned: ${JSON.stringify(clean)}`);
-    }
 
     // Accumulate into line buffer
     entry.discussBuffer += clean;
@@ -557,31 +550,27 @@ Then await further instructions from the user. Messages will be delivered to you
     entry.discussBuffer = lines.pop() || '';
 
     for (const line of lines) {
-      // Find >>DISCUSS anywhere in the line
-      const idx = line.indexOf('>>DISCUSS');
+      // Find DISCUSS anywhere in the line (>> may be mangled by TUI rendering)
+      const idx = line.indexOf('DISCUSS');
       if (idx === -1) continue;
 
-      // Extract everything after >>DISCUSS
-      const after = line.substring(idx + 9).trim(); // 9 = '>>DISCUSS'.length
+      // Extract everything after DISCUSS
+      const after = line.substring(idx + 7).trim(); // 7 = 'DISCUSS'.length
+      if (!after || after[0] !== ':') continue; // must be followed by colon
 
-      // Skip if this looks like an echo command (the command itself, not the output)
+      // Get the message after the colon
+      const message = after.substring(1).trim();
+      if (!message) continue;
+
+      // Skip if this looks like an echo command line
       const before = line.substring(0, idx);
       if (/echo\s/i.test(before) && /["'`]/.test(before)) continue;
 
-      console.log(`[DISCUSS] Found in line: "${line.trim()}"`);
-      console.log(`[DISCUSS] After pattern: "${after}"`);
-
-      if (!after) continue;
-
-      // Parse: ">>DISCUSS: message" or ">>DISCUSS @Target: message"
-      let content;
-      const colonIdx = after.indexOf(':');
-      if (colonIdx !== -1) {
-        const beforeColon = after.substring(0, colonIdx).trim();
-        const afterColon = after.substring(colonIdx + 1).trim();
-        content = beforeColon.length === 0 ? afterColon : beforeColon + ' ' + afterColon;
-      } else {
-        content = after;
+      // Parse optional @Target or #Target before the actual message content
+      let content = message;
+      const targetMatch = message.match(/^((?:[@#]\w+\s*)+)\s+([\s\S]+)$/);
+      if (targetMatch) {
+        content = targetMatch[1].trim() + ' ' + targetMatch[2].trim();
       }
 
       if (content) {
