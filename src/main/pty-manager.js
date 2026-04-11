@@ -534,7 +534,14 @@ Then await further instructions from the user. Messages will be delivered to you
    */
   _detectDiscussReply(agentId, data) {
     const entry = this.ptys.get(agentId);
-    if (!entry || !this.messageCallback) return;
+    if (!entry) {
+      console.log('[DISCUSS] No entry for agent', agentId);
+      return;
+    }
+    if (!this.messageCallback) {
+      console.log('[DISCUSS] No messageCallback registered');
+      return;
+    }
 
     const str = typeof data === 'string' ? data : data.toString();
     entry.discussBuffer += str;
@@ -562,17 +569,29 @@ Then await further instructions from the user. Messages will be delivered to you
       const trimmed = line.trim();
 
       // Match: >>DISCUSS: message  or  >>DISCUSS @Target: message
-      const m = trimmed.match(/^>>DISCUSS\s*(.*)/);
+      // Handle case where >>DISCUSS may have decorative chars before it
+      const m = trimmed.match(/>>DISCUSS\s*(.*)/);
       if (!m) continue;
+
+      console.log(`[DISCUSS] Found pattern in: "${trimmed}"`);
 
       // Skip lines where >>DISCUSS appears inside a command (shell echo, quotes, etc.)
       // Only skip if >>DISCUSS is NOT at the start (in case it appears mid-line in a command)
       const beforeDiscuss = line.substring(0, line.indexOf('>>DISCUSS')).trim();
-      if (beforeDiscuss && /echo\s/i.test(beforeDiscuss)) continue;
-      if (beforeDiscuss && /["'`]/.test(beforeDiscuss)) continue;
+      if (beforeDiscuss && /echo\s/i.test(beforeDiscuss)) {
+        console.log(`[DISCUSS] Skipping (echo command before pattern): "${line}"`);
+        continue;
+      }
+      if (beforeDiscuss && /["'`]/.test(beforeDiscuss)) {
+        console.log(`[DISCUSS] Skipping (quotes before pattern): "${line}"`);
+        continue;
+      }
 
       const afterDiscuss = m[1].trim();
-      if (!afterDiscuss) continue;
+      if (!afterDiscuss) {
+        console.log(`[DISCUSS] Empty content after pattern`);
+        continue;
+      }
 
       // Parse: optional targets before colon, then message after colon
       let content;
