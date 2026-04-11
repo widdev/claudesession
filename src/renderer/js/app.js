@@ -330,6 +330,7 @@ function showNewAgentModal() {
       swatch.addEventListener('click', () => { swatchContainer.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected')); swatch.classList.add('selected'); selectedColorId = id; });
       swatchContainer.appendChild(swatch);
     });
+    nameInput.addEventListener('input', () => { nameInput.value = nameInput.value.replace(/\s/g, ''); });
     modal.classList.remove('hidden'); nameInput.focus(); nameInput.select();
     let resolved = false;
     function finish(r) { if (resolved) return; resolved = true; modal.classList.add('hidden'); document.removeEventListener('keydown', onKd); claudeMdCheckbox.removeEventListener('change', onClaudeMdChange); resolve(r); }
@@ -348,7 +349,7 @@ function showNewAgentModal() {
       if (e.target.id === 'modal-claude-md-info') { showClaudeMdInfo(); }
       else if (e.target.id === 'modal-select-dir') { window.electronAPI.openDirectoryDialog().then((d) => { if (d) { pathDisplay.textContent = d; pathDisplay.dataset.path = d; pathDisplay.title = d; pathDisplay.style.color = ''; } }); }
       else if (e.target.id === 'modal-create-btn') {
-        const name = (nameInput.value.trim() || nextAgentName()).replace(/\s+/g, ''); const dir = pathDisplay.dataset.path;
+        const name = nameInput.value.trim() || nextAgentName(); const dir = pathDisplay.dataset.path;
         if (!dir) { pathDisplay.textContent = 'Please select a directory'; pathDisplay.style.color = '#f44747'; return; }
         modal.removeEventListener('click', onModalClick);
         finish({ name, dir, colorId: selectedColorId, autoPermissions: document.getElementById('modal-auto-permissions').checked, updateClaudeMd: claudeMdCheckbox.checked });
