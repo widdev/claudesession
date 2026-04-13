@@ -39,15 +39,13 @@ class SessionManager {
         cwd TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         last_active TEXT NOT NULL DEFAULT (datetime('now')),
-        active INTEGER NOT NULL DEFAULT 1
+        active INTEGER NOT NULL DEFAULT 1,
+        short_code TEXT
       )
     `);
-    // Ensure active column exists on older DBs
-    try {
-      this.db.run(`ALTER TABLE agents ADD COLUMN active INTEGER NOT NULL DEFAULT 1`);
-    } catch (e) {
-      // Column already exists — ignore
-    }
+    // Ensure columns exist on older DBs
+    try { this.db.run(`ALTER TABLE agents ADD COLUMN active INTEGER NOT NULL DEFAULT 1`); } catch (e) {}
+    try { this.db.run(`ALTER TABLE agents ADD COLUMN short_code TEXT`); } catch (e) {}
     this.db.run(`
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,15 +53,15 @@ class SessionManager {
         to_agent TEXT NOT NULL,
         content TEXT NOT NULL,
         timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-        deleted INTEGER NOT NULL DEFAULT 0
+        deleted INTEGER NOT NULL DEFAULT 0,
+        msg_seq INTEGER,
+        readable_id TEXT
       )
     `);
-    // Ensure deleted column exists on older DBs
-    try {
-      this.db.run(`ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`);
-    } catch (e) {
-      // Column already exists — ignore
-    }
+    // Ensure columns exist on older DBs
+    try { this.db.run(`ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+    try { this.db.run(`ALTER TABLE messages ADD COLUMN msg_seq INTEGER`); } catch (e) {}
+    try { this.db.run(`ALTER TABLE messages ADD COLUMN readable_id TEXT`); } catch (e) {}
     this.db.run(`
       CREATE TABLE IF NOT EXISTS session_meta (
         key TEXT PRIMARY KEY,
@@ -134,11 +132,90 @@ class SessionManager {
 
   saveAgent(agent) {
     if (!this.db) return;
+    // Preserve existing short_code on re-save; generate one if missing
+    let shortCode = null;
+    const existing = this.db.prepare(`SELECT short_code FROM agents WHERE id = ?`);
+    existing.bind([agent.id]);
+    if (existing.step()) {
+      shortCode = existing.getAsObject().short_code;
+    }
+    existing.free();
+
+    if (!shortCode) {
+      const usedCodes = this.getExistingShortCodes();
+      shortCode = SessionManager.generateShortCode(agent.name, usedCodes);
+    }
+
     this.db.run(
-      `INSERT OR REPLACE INTO agents (id, name, cwd, last_active, active) VALUES (?, ?, ?, datetime('now'), 1)`,
-      [agent.id, agent.name, agent.cwd]
+      `INSERT OR REPLACE INTO agents (id, name, cwd, last_active, active, short_code) VALUES (?, ?, ?, datetime('now'), 1, ?)`,
+      [agent.id, agent.name, agent.cwd, shortCode]
     );
     this._save();
+    return shortCode;
+  }
+
+  getAgentShortCode(agentId) {
+    if (!this.db) return null;
+    const stmt = this.db.prepare(`SELECT short_code FROM agents WHERE id = ?`);
+    stmt.bind([agentId]);
+    let code = null;
+    if (stmt.step()) {
+      code = stmt.getAsObject().short_code;
+    }
+    stmt.free();
+    return code;
+  }
+
+  getExistingShortCodes() {
+    if (!this.db) return new Set();
+    const stmt = this.db.prepare(`SELECT short_code FROM agents WHERE short_code IS NOT NULL`);
+    const codes = new Set();
+    while (stmt.step()) {
+      codes.add(stmt.getAsObject().short_code);
+    }
+    stmt.free();
+    return codes;
+  }
+
+  static generateShortCode(name, existingCodes) {
+    const upper = name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!upper) return SessionManager._ensureUnique('AGT', existingCodes);
+
+    if (upper.length <= 3) {
+      const code = upper.padEnd(3, 'X');
+      return SessionManager._ensureUnique(code, existingCodes);
+    }
+
+    // Extract consonants (keep first char regardless)
+    const vowels = new Set(['A', 'E', 'I', 'O', 'U']);
+    let consonants = upper[0];
+    for (let i = 1; i < upper.length && consonants.length < 3; i++) {
+      if (!vowels.has(upper[i])) consonants += upper[i];
+    }
+
+    // If still short, fill with remaining characters
+    if (consonants.length < 3) {
+      for (let i = 1; i < upper.length && consonants.length < 3; i++) {
+        if (!consonants.includes(upper[i])) consonants += upper[i];
+      }
+    }
+
+    const code = consonants.substring(0, 3).padEnd(3, upper[upper.length - 1]);
+    return SessionManager._ensureUnique(code, existingCodes);
+  }
+
+  static _ensureUnique(code, existingCodes) {
+    if (!existingCodes.has(code)) return code;
+    for (let i = 2; i <= 9; i++) {
+      const candidate = code.substring(0, 2) + i;
+      if (!existingCodes.has(candidate)) return candidate;
+    }
+    // Extreme fallback
+    for (let i = 10; i < 100; i++) {
+      const candidate = code[0] + String(i);
+      if (!existingCodes.has(candidate)) return candidate;
+    }
+    return code;
   }
 
   deactivateAgent(agentId) {
@@ -177,13 +254,30 @@ class SessionManager {
 
   saveMessage(msg) {
     if (!this.db) return null;
+
+    // Compute per-sender sequence number
+    const seqStmt = this.db.prepare(`SELECT COALESCE(MAX(msg_seq), 0) + 1 AS next_seq FROM messages WHERE from_agent = ?`);
+    seqStmt.bind([msg.from]);
+    let msgSeq = 1;
+    if (seqStmt.step()) {
+      msgSeq = seqStmt.getAsObject().next_seq;
+    }
+    seqStmt.free();
+
+    // Build readable_id: sender short code + sequence
+    let senderCode = 'USR';
+    if (msg.from !== 'You') {
+      senderCode = this.getAgentShortCode(msg.from) || 'UNK';
+    }
+    const readableId = `${senderCode}-${msgSeq}`;
+
     this.db.run(
-      `INSERT INTO messages (from_agent, to_agent, content) VALUES (?, ?, ?)`,
-      [msg.from, msg.to, msg.content]
+      `INSERT INTO messages (from_agent, to_agent, content, msg_seq, readable_id) VALUES (?, ?, ?, ?, ?)`,
+      [msg.from, msg.to, msg.content, msgSeq, readableId]
     );
     this._save();
     // Retrieve the inserted row by max ID, with resolved names
-    const stmt = this.db.prepare(`SELECT m.*, a_from.name AS fromName, a_to.name AS toName
+    const stmt = this.db.prepare(`SELECT m.*, a_from.name AS fromName, a_to.name AS toName, a_from.short_code AS fromShortCode
       FROM messages m
       LEFT JOIN agents a_from ON m.from_agent = a_from.id
       LEFT JOIN agents a_to ON m.to_agent = a_to.id
@@ -198,7 +292,7 @@ class SessionManager {
 
   getMessages(filter) {
     if (!this.db) return [];
-    let sql = `SELECT m.*, a_from.name AS fromName, a_to.name AS toName
+    let sql = `SELECT m.*, a_from.name AS fromName, a_to.name AS toName, a_from.short_code AS fromShortCode
       FROM messages m
       LEFT JOIN agents a_from ON m.from_agent = a_from.id
       LEFT JOIN agents a_to ON m.to_agent = a_to.id

@@ -71,6 +71,8 @@ async function startMessageServer(sessionManager, ptyManager) {
       to: resolvedTo,
       content,
       fromName: enriched.fromName,
+      readableId: saved.readable_id || null,
+      fromShortCode: saved.fromShortCode || sessionManager.getAgentShortCode(from) || null,
     });
 
     res.json(saved);
@@ -157,6 +159,8 @@ async function startMessageServer(sessionManager, ptyManager) {
         to,
         content: parsed.cleanContent,
         fromName: enriched.fromName,
+        readableId: saved.readable_id || null,
+        fromShortCode: saved.fromShortCode || sessionManager.getAgentShortCode(from) || null,
       });
     }
   });

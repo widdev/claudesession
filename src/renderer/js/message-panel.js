@@ -286,8 +286,20 @@ function sendToAgent(agentId, text) {
   window.electronAPI.writeAndSubmitToAgent(agentId, text);
 }
 
+const LARGE_MESSAGE_THRESHOLD = 700;
+
 async function broadcast(input) {
   const text = input.value.trim(); if (!text) return;
+
+  // Warn if message is large enough to require chunked delivery
+  if (text.length > LARGE_MESSAGE_THRESHOLD) {
+    const ok = await showConfirmDialog(
+      'Large message',
+      `This message is ${text.length} characters. Large messages are sent to agents in batches which may be slower. Send anyway?`,
+      'Send Anyway'
+    );
+    if (!ok) return;
+  }
 
   // Add to history (avoid duplicating the last entry)
   if (inputHistory.length === 0 || inputHistory[inputHistory.length - 1] !== text) {
@@ -306,23 +318,26 @@ async function broadcast(input) {
       if (e.name.toLowerCase() === tn.toLowerCase()) { tid = id; matchedName = e.name; break; }
     }
     if (tid && mb) {
-      // Save to DB first, then send and display
+      // Save to DB first, then send with metadata tag
       const saved = await window.electronAPI.saveMessage({ from: 'You', to: matchedName, content: mb });
-      if (!isAgentPaused(tid)) sendToAgent(tid, mb);
+      const tag = saved && saved.readable_id ? `[d#U:${saved.readable_id}]` : '[d#U]';
+      if (!isAgentPaused(tid)) sendToAgent(tid, `${tag} ${mb}`);
       if (saved) appendMessage(saved);
       else appendAside(mb, matchedName);
     } else {
       // Agent not found — broadcast the full text as normal, warn the user
       const saved = await window.electronAPI.saveMessage({ from: 'You', to: 'All Agents', content: text });
-      for (const [id] of agents) { if (!isAgentPaused(id)) sendToAgent(id, text); }
+      const tag = saved && saved.readable_id ? `[d-U:${saved.readable_id}]` : '[d-U]';
+      for (const [id] of agents) { if (!isAgentPaused(id)) sendToAgent(id, `${tag} ${text}`); }
       if (saved) appendMessage(saved);
       else appendBroadcast(text);
       showInputError(`#${tn} was not recognised as a valid aside. No agent called "${tn}" was found.`);
     }
   } else {
-    // Save to DB first, then send and display
+    // Save to DB first, then send with metadata tag
     const saved = await window.electronAPI.saveMessage({ from: 'You', to: 'All Agents', content: text });
-    for (const [id] of agents) { if (!isAgentPaused(id)) sendToAgent(id, text); }
+    const tag = saved && saved.readable_id ? `[d-U:${saved.readable_id}]` : '[d-U]';
+    for (const [id] of agents) { if (!isAgentPaused(id)) sendToAgent(id, `${tag} ${text}`); }
     if (saved) appendMessage(saved);
     else appendBroadcast(text);
   }
@@ -415,7 +430,8 @@ function createMessageElement(msg) {
   const fromClass = isUser ? 'message-from broadcast-from' : 'message-from';
   const fc = !isUser && fid ? getAgentColor(fid) : null;
   const fs = fc ? ` style="color: ${fc}"` : '';
-  e.innerHTML = `<span class="msg-remove" title="Remove">&times;</span><div class="message-meta"><span class="${fromClass}"${fs}>${esc(fn)}</span> &rarr; <span class="message-to">${esc(tn)}</span> &middot; ${esc(t)}</div><div class="message-content">${esc(msg.content || '')}</div>`;
+  const rid = msg.readable_id ? `<span class="message-id">${esc(msg.readable_id)}</span> ` : '';
+  e.innerHTML = `<span class="msg-remove" title="Remove">&times;</span><div class="message-meta">${rid}<span class="${fromClass}"${fs}>${esc(fn)}</span> &rarr; <span class="message-to">${esc(tn)}</span> &middot; ${esc(t)}</div><div class="message-content">${esc(msg.content || '')}</div>`;
   e.querySelector('.msg-remove').addEventListener('click', async () => { if (msg.id) await window.electronAPI.removeMessage(msg.id); e.remove(); });
   return e;
 }
@@ -443,7 +459,7 @@ function showArchiveModal() {
   async function ocl() {
     // Hide archive modal, show confirm modal
     modal.classList.add('hidden');
-    const confirmed = await showConfirmDialog('Clear Discussion', 'This will clear all messages from the discussion without saving to a file. Are you sure?');
+    const confirmed = await showConfirmDialog('Clear Discussion', 'This will clear all messages from the discussion without saving to a file. Are you sure?', 'Clear');
     if (!confirmed) { modal.classList.remove('hidden'); return; }
     await window.electronAPI.clearMessages();
     if (msgListEl) msgListEl.innerHTML = '';
@@ -473,11 +489,12 @@ function showArchiveModal() {
   document.addEventListener('keydown', ok); bb.addEventListener('click', ob); sb.addEventListener('click', os); cb.addEventListener('click', oc); clb.addEventListener('click', ocl);
 }
 
-function showConfirmDialog(title, message) {
+function showConfirmDialog(title, message, confirmLabel) {
+  const btnLabel = confirmLabel || 'Confirm';
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
-    overlay.innerHTML = `<div class="modal-dialog" style="width:380px"><h2>${esc(title)}</h2><p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">${esc(message)}</p><div class="modal-actions"><button class="modal-btn-secondary" id="confirm-no">Cancel</button><button class="modal-btn-danger" id="confirm-yes">Clear</button></div></div>`;
+    overlay.innerHTML = `<div class="modal-dialog" style="width:380px"><h2>${esc(title)}</h2><p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">${esc(message)}</p><div class="modal-actions"><button class="modal-btn-danger" id="confirm-yes">${esc(btnLabel)}</button><button class="modal-btn-secondary" id="confirm-no">Cancel</button></div></div>`;
     document.body.appendChild(overlay);
     overlay.querySelector('#confirm-yes').addEventListener('click', () => { overlay.remove(); resolve(true); });
     overlay.querySelector('#confirm-no').addEventListener('click', () => { overlay.remove(); resolve(false); });

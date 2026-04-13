@@ -786,6 +786,14 @@ button:hover {
   margin-bottom: 4px;
 }
 
+.message-entry .message-id {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  font-family: monospace;
+  opacity: 0.7;
+  margin-right: 4px;
+}
+
 .message-entry .message-from {
   color: var(--accent);
   font-weight: bold;

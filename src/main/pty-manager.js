@@ -292,13 +292,34 @@ messages
 
 Use \`@\` and \`#\` targeting to reduce noise. Do NOT broadcast when a targeted message will do — this saves tokens for all agents.
 
-## Where to Reply — IMPORTANT
+## Message Metadata — How to Read Incoming Messages
 
-Messages you receive are prefixed to tell you where they came from:
+Messages delivered to your terminal carry a metadata tag in square brackets. The format is:
 
-- **\`[Discussion]\`** — came from the Discussion panel. Reply using \`discuss\`. All agents and the user see the Discussion panel, so your reply will be visible to everyone.
-- **\`[Discussion aside]\`** — a private aside from the Discussion panel directed only to you. Reply using \`discuss\` (you may use \`#\` targeting for a private reply).
-- **No prefix** — typed directly into your shell by the user. Reply normally in your shell output (do NOT use \`discuss\`).
+\`[{channel}{targeting}{sender}:{message_id}]\`
+
+- **Channel:** \`d\` = Discussion panel, \`s\` = shell (future)
+- **Targeting:** \`#\` = aside (private to you), \`@\` = you are @mentioned, \`-\` = broadcast/FYI
+- **Sender:** \`U\` = the user, \`A-{CODE}\` = an agent (e.g. \`A-BKD\` = agent with code BKD)
+- **Message ID:** e.g. \`USR-12\`, \`BKD-5\` — use this to reference messages in replies
+
+### Examples
+
+| Tag | Meaning | How to respond |
+|-----|---------|---------------|
+| \`[d-U:USR-7]\` | Discussion broadcast from User | Reply via \`discuss\` |
+| \`[d#U:USR-5]\` | Discussion aside from User to you | Reply via \`discuss "#User ..."\` |
+| \`[d#A-BKD:BKD-3]\` | Discussion aside from agent BKD | Reply via \`discuss "#AgentName ..."\` |
+| \`[d@A-BKD:BKD-4]\` | Discussion msg from BKD, you're @mentioned | Reply via \`discuss\` |
+| \`[d-A-BKD:BKD-5]\` | Discussion FYI from BKD (not targeting you) | No action needed unless relevant |
+| No tag | Typed directly into your shell by the user | Reply normally in shell output (do NOT use \`discuss\`) |
+
+### Key rules for responding:
+- **\`d\` (Discussion)** messages → always reply via \`discuss\`
+- **\`#\` (aside)** → reply with \`discuss "#SenderName ..."\` for a private response
+- **\`-\` (FYI)** → only act if the content is relevant to you
+- **No tag** → reply in your shell output, NOT via \`discuss\`
+- You can reference messages by ID, e.g. "Re: BKD-12, I agree"
 
 ## Critical Rules
 
@@ -491,10 +512,14 @@ curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
    * @param {object} msg - { from, to, content, fromName }
    */
   routeMessage(msg) {
-    const { from, to, content, fromName } = msg;
+    const { from, to, content, fromName, readableId, fromShortCode } = msg;
 
     // Parse @ mentions and # asides from the content
     const parsed = this._parseMessageTargets(content);
+
+    // Build sender part for metadata tag: "U" for user, "A-{CODE}" for agents
+    const isUser = (from === 'You');
+    const senderTag = isUser ? 'U' : `A-${fromShortCode || 'UNK'}`;
 
     for (const [agentId, entry] of this.ptys) {
       // Never echo back to sender
@@ -508,20 +533,20 @@ curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
       if (parsed.type === 'aside') {
         // # aside — only deliver to named agents (bypasses exclude filter)
         if (!parsed.targets.includes(agentNameLower)) continue;
-        this._injectMessage(entry, fromName || from, content, parsed.cleanContent, 'action');
+        this._injectMessage(entry, parsed.cleanContent, 'd', '#', senderTag, readableId);
       } else if (entry.filterMode === FILTER_MODES.EXCLUDE) {
         // Excluded agents get nothing except direct asides (handled above)
         continue;
       } else if (parsed.type === 'mention') {
         // @ mention — deliver to all, but action vs info
         const isTarget = parsed.targets.includes(agentNameLower);
-        // If all targets are @User, skip agents entirely (handled above)
         const hasNonUserTargets = parsed.targets.some(t => t !== 'user');
         if (!hasNonUserTargets) continue;
-        this._injectMessage(entry, fromName || from, content, parsed.cleanContent, isTarget ? 'action' : 'info', parsed.targetDisplay);
+        const targeting = isTarget ? '@' : '-';
+        this._injectMessage(entry, parsed.cleanContent, 'd', targeting, senderTag, readableId);
       } else {
         // Plain broadcast — action for everyone
-        this._injectMessage(entry, fromName || from, content, parsed.cleanContent, 'action');
+        this._injectMessage(entry, parsed.cleanContent, 'd', '-', senderTag, readableId);
       }
     }
   }
@@ -561,28 +586,27 @@ curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
 
   /**
    * Inject a formatted message into an agent's PTY.
-   * @param {object} entry - PTY entry
-   * @param {string} fromName - sender display name
-   * @param {string} rawContent - original message content
-   * @param {string} cleanContent - message with prefixes stripped
-   * @param {string} mode - 'action' or 'info'
-   * @param {string} targetDisplay - e.g. '@Api @Client' for info headers
+   *
+   * Metadata tag format: [{channel}{targeting}{sender}:{readable_id}]
+   *   channel:   d = discussion, s = shell (future)
+   *   targeting: # = aside to you, @ = you're @mentioned, - = broadcast/FYI
+   *   sender:    U = user, A-{CODE} = agent with short code
+   *
+   * Examples:
+   *   [d-U:USR-12]        — discussion broadcast from user
+   *   [d#A-BKD:BKD-3]     — discussion aside from Backend
+   *   [d@A-BKD:BKD-4]     — discussion mention from Backend, you're targeted
+   *   [d-A-BKD:BKD-5]     — discussion FYI from Backend
    */
-  _injectMessage(entry, fromName, rawContent, cleanContent, mode, targetDisplay) {
-    let prefix;
-    if (mode === 'info') {
-      prefix = `[Discussion info from ${fromName} to ${targetDisplay}]`;
-    } else if (targetDisplay) {
-      prefix = `[Discussion from ${fromName}]`;
-    } else {
-      prefix = `[Discussion from ${fromName}]`;
-    }
+  _injectMessage(entry, cleanContent, channel, targeting, senderTag, readableId) {
+    const idPart = readableId ? `:${readableId}` : '';
+    const tag = `[${channel}${targeting}${senderTag}${idPart}]`;
 
     // Strip newlines — Claude Code's TUI detects pastes when input contains \n
     // and shows "[pasted N lines]" without submitting. Discussion messages are
     // single prompts, so newlines can safely become spaces.
     const sanitised = cleanContent.replace(/\r?\n/g, ' ');
-    const message = `${prefix} ${sanitised}`;
+    const message = `${tag} ${sanitised}`;
     this._writeAndSubmit(entry.process, message);
   }
 
@@ -594,21 +618,37 @@ curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
    * with a 100ms debounce and shows "[pasted N lines]" without submitting.
    *
    * For short text (<800 chars, no newlines): append \r directly.
-   * For long text: wrap in bracketed paste escapes so the \r falls outside
-   * the paste boundary and is processed as a normal Enter keypress.
+   * For long text: send in chunks under 700 chars with 150ms gaps between
+   * them. Each chunk is small enough to avoid paste detection, and the gap
+   * exceeds the 100ms debounce so chunks are processed independently.
+   * The final chunk gets \r appended to submit.
    */
   _writeAndSubmit(ptyProcess, text) {
-    if (text.length < 800 && !text.includes('\n')) {
-      ptyProcess.write(text + '\r');
-    } else {
-      // Wrap in bracketed paste sequences: \x1b[200~ ... \x1b[201~
-      // Claude Code's tokenizer recognises these in the raw byte stream.
-      // The \r after the closing sequence is outside the paste and acts as Enter.
-      ptyProcess.write('\x1b[200~' + text + '\x1b[201~');
-      setTimeout(() => {
-        ptyProcess.write('\r');
-      }, 200);
+    // Strip newlines — they always trigger paste detection
+    const clean = text.replace(/\r?\n/g, ' ');
+
+    if (clean.length < 700) {
+      ptyProcess.write(clean + '\r');
+      return;
     }
+
+    // Split into chunks under 700 chars and send with gaps
+    const CHUNK_SIZE = 700;
+    const chunks = [];
+    for (let i = 0; i < clean.length; i += CHUNK_SIZE) {
+      chunks.push(clean.substring(i, i + CHUNK_SIZE));
+    }
+
+    function sendChunk(index) {
+      if (index >= chunks.length) return;
+      const isLast = index === chunks.length - 1;
+      ptyProcess.write(chunks[index] + (isLast ? '\r' : ''));
+      if (!isLast) {
+        setTimeout(() => sendChunk(index + 1), 150);
+      }
+    }
+
+    sendChunk(0);
   }
 
   /**
