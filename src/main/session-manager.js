@@ -38,9 +38,16 @@ class SessionManager {
         name TEXT NOT NULL DEFAULT 'Untitled',
         cwd TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        last_active TEXT NOT NULL DEFAULT (datetime('now'))
+        last_active TEXT NOT NULL DEFAULT (datetime('now')),
+        active INTEGER NOT NULL DEFAULT 1
       )
     `);
+    // Ensure active column exists on older DBs
+    try {
+      this.db.run(`ALTER TABLE agents ADD COLUMN active INTEGER NOT NULL DEFAULT 1`);
+    } catch (e) {
+      // Column already exists — ignore
+    }
     this.db.run(`
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,9 +135,15 @@ class SessionManager {
   saveAgent(agent) {
     if (!this.db) return;
     this.db.run(
-      `INSERT OR REPLACE INTO agents (id, name, cwd, last_active) VALUES (?, ?, ?, datetime('now'))`,
+      `INSERT OR REPLACE INTO agents (id, name, cwd, last_active, active) VALUES (?, ?, ?, datetime('now'), 1)`,
       [agent.id, agent.name, agent.cwd]
     );
+    this._save();
+  }
+
+  deactivateAgent(agentId) {
+    if (!this.db) return;
+    this.db.run(`UPDATE agents SET active = 0 WHERE id = ?`, [agentId]);
     this._save();
   }
 
@@ -141,6 +154,17 @@ class SessionManager {
   }
 
   getAgents() {
+    if (!this.db) return [];
+    const stmt = this.db.prepare(`SELECT * FROM agents WHERE active = 1 ORDER BY last_active DESC`);
+    const agents = [];
+    while (stmt.step()) {
+      agents.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return agents;
+  }
+
+  getSavedAgents() {
     if (!this.db) return [];
     const stmt = this.db.prepare(`SELECT * FROM agents ORDER BY last_active DESC`);
     const agents = [];

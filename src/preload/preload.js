@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createAgent: (opts) => ipcRenderer.invoke('pty:create', opts),
   killAgent: (id) => ipcRenderer.invoke('pty:kill', id),
   writeToAgent: (id, data) => ipcRenderer.send('pty:write', id, data),
+  writeAndSubmitToAgent: (id, text) => ipcRenderer.send('pty:writeAndSubmit', id, text),
   resizeAgent: (id, cols, rows) => ipcRenderer.send('pty:resize', id, cols, rows),
   renameAgent: (id, name) => ipcRenderer.invoke('pty:rename', id, name),
   changeAgentCwd: (id) => ipcRenderer.invoke('pty:changeCwd', id),

@@ -66,12 +66,22 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
     ptyManager.write(agentId, data);
   });
 
+  ipcMain.on('pty:writeAndSubmit', (event, agentId, text) => {
+    const entry = ptyManager.ptys.get(agentId);
+    if (entry) {
+      ptyManager._writeAndSubmit(entry.process, text);
+    }
+  });
+
   ipcMain.on('pty:resize', (event, agentId, cols, rows) => {
     ptyManager.resize(agentId, cols, rows);
   });
 
   ipcMain.handle('pty:kill', (event, agentId) => {
     ptyManager.kill(agentId);
+    if (sessionManager.isOpen()) {
+      sessionManager.deactivateAgent(agentId);
+    }
   });
 
   ipcMain.handle('pty:rename', (event, agentId, newName) => {
@@ -144,7 +154,7 @@ function registerIpcHandlers(ipcMain, ptyManager, sessionManager, messageServer,
   });
 
   ipcMain.handle('agents:listSaved', () => {
-    return sessionManager.getAgents();
+    return sessionManager.getSavedAgents();
   });
 
   ipcMain.handle('agents:remove', (event, agentId) => {

@@ -79,21 +79,7 @@ function resizeInput(input) {
 }
 
 function sendToAgent(agentId, text) {
-  const isMultiline = text.includes('\n') || text.includes('\r');
-  const isLong = text.length > 100;
-  if (isMultiline || isLong) {
-    // Send text first, then Enter after a delay — otherwise the terminal's
-    // bracketed-paste / multiline detection swallows the trailing \r and
-    // shows "[N lines]" without submitting. Longer text needs more time
-    // for the terminal to finish processing the paste.
-    window.electronAPI.writeToAgent(agentId, text);
-    const delay = Math.min(300 + text.length, 1500);
-    setTimeout(() => {
-      window.electronAPI.writeToAgent(agentId, '\r');
-    }, delay);
-  } else {
-    window.electronAPI.writeToAgent(agentId, text + '\r');
-  }
+  window.electronAPI.writeAndSubmitToAgent(agentId, text);
 }
 
 function broadcast() {

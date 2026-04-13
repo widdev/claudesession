@@ -500,18 +500,18 @@ curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
       // Never echo back to sender
       if (agentId === from) continue;
 
-      // Excluded agents get nothing
-      if (entry.filterMode === FILTER_MODES.EXCLUDE) continue;
-
       // @User messages go to panel only, not agents
       if (parsed.type === 'mention' && parsed.targets.length === 1 && parsed.targets[0] === 'user') continue;
 
       const agentNameLower = entry.name.toLowerCase();
 
       if (parsed.type === 'aside') {
-        // # aside — only deliver to named agents
+        // # aside — only deliver to named agents (bypasses exclude filter)
         if (!parsed.targets.includes(agentNameLower)) continue;
         this._injectMessage(entry, fromName || from, content, parsed.cleanContent, 'action');
+      } else if (entry.filterMode === FILTER_MODES.EXCLUDE) {
+        // Excluded agents get nothing except direct asides (handled above)
+        continue;
       } else if (parsed.type === 'mention') {
         // @ mention — deliver to all, but action vs info
         const isTarget = parsed.targets.includes(agentNameLower);
@@ -578,8 +578,37 @@ curl -s "$CLAUDE_SESSION_URL/api/messages?for=$CLAUDE_AGENT_ID" | node -e "
       prefix = `[Discussion from ${fromName}]`;
     }
 
-    const message = `${prefix} ${cleanContent}`;
-    entry.process.write(message + '\r');
+    // Strip newlines — Claude Code's TUI detects pastes when input contains \n
+    // and shows "[pasted N lines]" without submitting. Discussion messages are
+    // single prompts, so newlines can safely become spaces.
+    const sanitised = cleanContent.replace(/\r?\n/g, ' ');
+    const message = `${prefix} ${sanitised}`;
+    this._writeAndSubmit(entry.process, message);
+  }
+
+  /**
+   * Write text to a PTY and ensure it gets submitted (Enter pressed).
+   *
+   * Claude Code's TUI has paste detection that triggers when input contains
+   * newlines OR exceeds ~800 characters. When triggered it buffers chunks
+   * with a 100ms debounce and shows "[pasted N lines]" without submitting.
+   *
+   * For short text (<800 chars, no newlines): append \r directly.
+   * For long text: wrap in bracketed paste escapes so the \r falls outside
+   * the paste boundary and is processed as a normal Enter keypress.
+   */
+  _writeAndSubmit(ptyProcess, text) {
+    if (text.length < 800 && !text.includes('\n')) {
+      ptyProcess.write(text + '\r');
+    } else {
+      // Wrap in bracketed paste sequences: \x1b[200~ ... \x1b[201~
+      // Claude Code's tokenizer recognises these in the raw byte stream.
+      // The \r after the closing sequence is outside the paste and acts as Enter.
+      ptyProcess.write('\x1b[200~' + text + '\x1b[201~');
+      setTimeout(() => {
+        ptyProcess.write('\r');
+      }, 200);
+    }
   }
 
   /**

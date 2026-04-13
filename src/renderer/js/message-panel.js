@@ -283,10 +283,7 @@ export function initMessageFilter(el) {
 
 // Broadcast
 function sendToAgent(agentId, text) {
-  const multi = text.includes('\n') || text.includes('\r');
-  const long = text.length > 100;
-  if (multi || long) { window.electronAPI.writeToAgent(agentId, text); setTimeout(() => window.electronAPI.writeToAgent(agentId, '\r'), Math.min(300 + text.length, 1500)); }
-  else window.electronAPI.writeToAgent(agentId, text + '\r');
+  window.electronAPI.writeAndSubmitToAgent(agentId, text);
 }
 
 async function broadcast(input) {
